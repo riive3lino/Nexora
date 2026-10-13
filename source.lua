@@ -2253,12 +2253,12 @@ end
 function Luna:CreateWindow(WindowSettings)
 
 	WindowSettings = Kwargify({
-		Name = "Luna UI Example Window",
+		Name = "Nexora UI",
 		Subtitle = "",
 		LogoID = "6031097225",
 		LoadingEnabled = true,
-		LoadingTitle = "Luna Interface Suite",
-		LoadingSubtitle = "by Nebula Softworks",
+		LoadingTitle = "Nexora UI",
+		LoadingSubtitle = "by riive3lino",
 
 		ConfigSettings = {},
 
