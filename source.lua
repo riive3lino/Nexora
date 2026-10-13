@@ -235,3 +235,5 @@ function Nexora:CreateWindow(options)
 
     return Window
 end
+
+return Nexora
