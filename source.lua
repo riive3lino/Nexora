@@ -55,7 +55,10 @@ local Release = "Prerelease Beta 6.1"
 local Luna = { 
 	Folder = "Luna", 
 	Options = {}, 
-	ThemeGradient = ColorSequence.new{ColorSequenceKeypoint.new(0.00, Color3.fromRGB(117, 164, 206)), ColorSequenceKeypoint.new(0.50, Color3.fromRGB(123, 201, 201)), ColorSequenceKeypoint.new(1.00, Color3.fromRGB(224, 138, 175))} 
+	ThemeGradient = ColorSequence.new{
+    ColorSequenceKeypoint.new(0.00, Color3.fromRGB(125, 70, 255)),
+    ColorSequenceKeypoint.new(0.50, Color3.fromRGB(85, 55, 190)),
+    ColorSequenceKeypoint.new(1.00, Color3.fromRGB(40, 25, 100))
 }
 
 local UserInputService = game:GetService("UserInputService")
@@ -2253,12 +2256,12 @@ end
 function Luna:CreateWindow(WindowSettings)
 
 	WindowSettings = Kwargify({
-		Name = "Nexora UI",
+		Name = "Luna UI Example Window",
 		Subtitle = "",
 		LogoID = "6031097225",
 		LoadingEnabled = true,
-		LoadingTitle = "Nexora UI",
-		LoadingSubtitle = "by riive3lino",
+		LoadingTitle = "Luna Interface Suite",
+		LoadingSubtitle = "by Nebula Softworks",
 
 		ConfigSettings = {},
 
@@ -6787,14 +6790,14 @@ if isStudio then
 		}
 	})
 	
-	--[[local Window = Luna:CreateWindow({
-		Name = "Luna Example Window",
+	local Window = Luna:CreateWindow({
+		Name = "Nexora",
 		Subtitle = "Test",
 		LogoID = "6031097225",
 		LoadingEnabled = true,
-		LoadingTitle = "Luna Interface Suite",
-		LoadingSubtitle = "by Nebula Softworks",
-		KeySystem = true,
+		LoadingTitle = "Nexora Hub",
+		LoadingSubtitle = "by Riive3lino",
+		KeySystem = false,
 		KeySettings = {
 			Title = "Luna Example Key",
 			Subtitle = "Key System",
