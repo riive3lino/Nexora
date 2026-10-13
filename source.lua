@@ -51,7 +51,7 @@ by Nebula Softworks
 ]]
 
 local Luna = {
-    Folder = "Luna",
+    Folder = "Nexora",
     Options = {},
     ThemeGradient = ColorSequence.new{
         ColorSequenceKeypoint.new(0.00, Color3.fromRGB(125, 70, 255)),
@@ -2255,12 +2255,12 @@ end
 function Luna:CreateWindow(WindowSettings)
 
 	WindowSettings = Kwargify({
-		Name = "Luna UI Example Window",
+		Name = "Nexora UI",
 		Subtitle = "",
 		LogoID = "6031097225",
 		LoadingEnabled = true,
-		LoadingTitle = "Luna Interface Suite",
-		LoadingSubtitle = "by Nebula Softworks",
+		LoadingTitle = "Nexora UI",
+        LoadingSubtitle = "by Riive3lino",
 
 		ConfigSettings = {},
 
@@ -2311,7 +2311,7 @@ function Luna:CreateWindow(WindowSettings)
 
 	LoadingFrame.Frame.Frame.Title.Text = WindowSettings.LoadingTitle
 	LoadingFrame.Frame.Frame.Subtitle.Text = WindowSettings.LoadingSubtitle
-	LoadingFrame.Version.Text = LoadingFrame.Frame.Frame.Title.Text == "Luna Interface Suite" and Release or "Luna UI"
+	LoadingFrame.Version.Text = "Nexora UI"
 
 	Navigation.Player.icon.ImageLabel.Image = Players:GetUserThumbnailAsync(Players.LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
 	Navigation.Player.Namez.Text = Players.LocalPlayer.DisplayName
