@@ -2255,12 +2255,12 @@ end
 function Luna:CreateWindow(WindowSettings)
 
 	WindowSettings = Kwargify({
-		Name = "Nexora UI",
-		Subtitle = "",
-		LogoID = "6031097225",
-		LoadingEnabled = true,
-		LoadingTitle = "Nexora UI",
-        LoadingSubtitle = "by Riive3lino",
+    Name = "Nexora UI",
+    Subtitle = "Purple Edition",
+    LogoID = "87059452636613",
+    LoadingEnabled = true,
+    LoadingTitle = "Nexora UI",
+    LoadingSubtitle = "by Riive3lino",
 
 		ConfigSettings = {},
 
