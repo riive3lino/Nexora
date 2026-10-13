@@ -1,3 +1,8 @@
+-- Nexora UI
+-- Código baseado na Luna UI.
+-- Créditos originais: Nebula Softworks (2024).
+-- Licença: consulte o arquivo LICENSE (Luna UI).
+
 
 local Nexora = {}
 
