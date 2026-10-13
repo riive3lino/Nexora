@@ -6974,7 +6974,7 @@ if isStudio then
 	s:CreateDropdown()
 
 	Tabs.Premium:BuildConfigSection()
-	Tabs.Premium:BuildThemeSection()]]
+	Tabs.Premium:BuildThemeSection()
 end
 
 -- THIS IS THE DEBUG DEMO, ONLY USED WHEN TESTING NEW ELEMENTS AND CODE
