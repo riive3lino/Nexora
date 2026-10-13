@@ -2257,7 +2257,7 @@ function Luna:CreateWindow(WindowSettings)
 	WindowSettings = Kwargify({
     Name = "Nexora UI",
     Subtitle = "Purple Edition",
-    LogoID = "87059452636613",
+    LogoID = "94280382992391",
     LoadingEnabled = true,
     LoadingTitle = "Nexora UI",
     LoadingSubtitle = "by Riive3lino",
