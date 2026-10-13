@@ -52,13 +52,14 @@ by Nebula Softworks
 
 local Release = "Prerelease Beta 6.1"
 
-local Luna = { 
-	Folder = "Luna", 
-	Options = {}, 
-	ThemeGradient = ColorSequence.new{
-    ColorSequenceKeypoint.new(0.00, Color3.fromRGB(125, 70, 255)),
-    ColorSequenceKeypoint.new(0.50, Color3.fromRGB(85, 55, 190)),
-    ColorSequenceKeypoint.new(1.00, Color3.fromRGB(40, 25, 100))
+local Luna = {
+    Folder = "Luna",
+    Options = {},
+    ThemeGradient = ColorSequence.new{
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(125, 70, 255)),
+        ColorSequenceKeypoint.new(0.50, Color3.fromRGB(85, 55, 190)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(40, 25, 100))
+    },
 }
 
 local UserInputService = game:GetService("UserInputService")
