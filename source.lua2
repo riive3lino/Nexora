@@ -1,0 +1,711 @@
+local Nexora = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/riive3lino/Nexora/main/source.lua"
+))()
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace         = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+
+local reachConfig = {
+    isActive           = false,
+    reachDistance      = 15,
+    ballName           = "TPS",
+    hitboxColor        = Color3.fromRGB(255, 0, 0),
+    hitboxTransparency = 0.8,
+    hideReach          = true,
+}
+
+local LEG_NAMES = {
+    "Left Leg", "Right Leg",
+    "LeftUpperLeg", "RightUpperLeg",
+    "LeftLowerLeg", "RightLowerLeg",
+    "Left Foot", "Right Foot", "LeftFoot", "RightFoot",
+}
+
+local STADIUM_NAMES = {
+    ["WorkspaceStadiumSounds"] = true,
+    ["StadiumFolder"]          = true,
+    ["Stadiumfolder"]          = true,
+    ["Stadium"]                = true,
+}
+
+local function isInStadium(part)
+    local parent = part.Parent
+    while parent do
+        if parent == Workspace then
+            return false
+        end
+        if STADIUM_NAMES[parent.Name] then
+            return true
+        end
+        parent = parent.Parent
+    end
+    return false
+end
+
+local function pickBestBall(candidates)
+    local best = nil
+    local bestScore = -math.huge
+    local cameraPos = Workspace.CurrentCamera.CFrame.Position
+
+    for _, part in ipairs(candidates) do
+        if part and part.Parent then
+            local ok, position = pcall(function() return part.Position end)
+            if ok and position and position.Y > -100 and position.Magnitude < 1e6 then
+                local score = isInStadium(part) and 1000 or 100
+                score = score - (cameraPos - position).Magnitude * 0.01
+                if score > bestScore then
+                    bestScore = score
+                    best = part
+                end
+            end
+        end
+    end
+
+    return best
+end
+
+local function createHitbox()
+    local part = Instance.new("Part")
+    part.Name         = "op"
+    part.Shape        = Enum.PartType.Block
+    part.Size         = Vector3.new(6, 6, 6)
+    part.Color        = reachConfig.hitboxColor
+    part.Material     = Enum.Material.Neon
+    part.Transparency = 1
+    part.CanCollide   = false
+    part.CanTouch     = true
+    part.CanQuery     = true
+    part.Anchored     = true
+    part.Massless     = true
+    part.Parent       = Workspace
+    return part
+end
+
+local hitbox = createHitbox()
+
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if not hitbox or not hitbox.Parent then
+            hitbox = createHitbox()
+        end
+    end
+end)
+
+local legParts = {}
+local cachedCharacter = nil
+
+local function refreshLegParts(force)
+    local character = LocalPlayer.Character
+    if not character then
+        legParts = {}
+        cachedCharacter = nil
+        return
+    end
+
+    if not force and cachedCharacter == character then
+        local allValid = true
+        for _, part in ipairs(legParts) do
+            if not part or not part.Parent then
+                allValid = false
+                break
+            end
+        end
+        if allValid then
+            return
+        end
+    end
+
+    cachedCharacter = character
+
+    local found = {}
+    for _, name in ipairs(LEG_NAMES) do
+        local part = character:FindFirstChild(name)
+        if part and part:IsA("BasePart") then
+            pcall(function()
+                part.CanTouch = true
+                part.CanQuery = true
+            end)
+            table.insert(found, part)
+        end
+    end
+    legParts = found
+end
+
+local function fireTouch(partA, partB)
+    pcall(firetouchinterest, partA, partB, 0)
+    pcall(firetouchinterest, partA, partB, 1)
+end
+
+local function hideHitbox()
+    pcall(function()
+        hitbox.CFrame = CFrame.new(0, -500, 0)
+    end)
+end
+
+local lastReachTick = 0
+
+local function updateReach()
+    if not reachConfig.isActive then return end
+
+    local now = tick()
+    if now - lastReachTick < 0.15 then return end
+    lastReachTick = now
+
+    local character = LocalPlayer.Character
+    if not character then
+        hideHitbox()
+        return
+    end
+
+    refreshLegParts(false)
+
+    local balls = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Name == reachConfig.ballName then
+            local ok, position = pcall(function() return obj.Position end)
+            if ok and position and position.Y > -100 and position.Magnitude < 1e6 then
+                table.insert(balls, obj)
+                pcall(function()
+                    obj.CanTouch = true
+                    obj.CanQuery = true
+                end)
+            end
+        end
+    end
+
+    if #balls == 0 then
+        hideHitbox()
+        return
+    end
+
+    local targetBall = pickBestBall(balls)
+    if not targetBall then
+        hideHitbox()
+        return
+    end
+
+    local distance = reachConfig.reachDistance
+
+    hitbox.Transparency = reachConfig.hideReach and 1 or reachConfig.hitboxTransparency
+    hitbox.Size = Vector3.new(distance, distance, distance)
+    pcall(function()
+        hitbox.CFrame = targetBall.CFrame
+    end)
+
+    if distance > 0 then
+        local maxSqDistance = distance * distance
+        for _, ball in ipairs(balls) do
+            local ballPosition = ball.Position
+            for _, leg in ipairs(legParts) do
+                if leg and leg.Parent then
+                    local delta = leg.Position - ballPosition
+                    if delta.X * delta.X + delta.Y * delta.Y + delta.Z * delta.Z <= maxSqDistance then
+                        fireTouch(hitbox, leg)
+                        fireTouch(ball, leg)
+                    end
+                end
+            end
+        end
+    end
+end
+
+RunService.Heartbeat:Connect(updateReach)
+
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    cachedCharacter = nil
+    newCharacter:WaitForChild("HumanoidRootPart", 5)
+    task.wait(0.5)
+    refreshLegParts(true)
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if reachConfig.isActive then
+            refreshLegParts(false)
+        end
+    end
+end)
+
+local following        = false
+local followTarget     = nil
+local followEnabled    = false
+local followMaxRange   = 150
+local followStopRange  = 0.8
+
+local myCharacter = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local myHumanoid  = myCharacter:WaitForChild("Humanoid")
+local myRoot      = myCharacter:WaitForChild("HumanoidRootPart")
+
+local followGui = Instance.new("ScreenGui")
+followGui.Name           = "TPSFollowUI"
+followGui.ResetOnSpawn   = false
+followGui.IgnoreGuiInset = true
+followGui.Enabled        = false
+followGui.Parent         = LocalPlayer:WaitForChild("PlayerGui")
+
+local followButton = Instance.new("TextButton")
+followButton.Name             = "FollowButton"
+followButton.Size             = UDim2.new(0, 120, 0, 42)
+followButton.Position         = UDim2.new(0.82, 0, 0.68, 0)
+followButton.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+followButton.BorderSizePixel  = 0
+followButton.Text             = "Follow: OFF"
+followButton.TextColor3       = Color3.fromRGB(255, 255, 255)
+followButton.TextSize         = 13
+followButton.Font             = Enum.Font.GothamBold
+followButton.AutoButtonColor  = true
+followButton.Visible          = true
+followButton.Parent           = followGui
+
+local followCorner = Instance.new("UICorner", followButton)
+followCorner.CornerRadius = UDim.new(0, 8)
+
+local followStroke = Instance.new("UIStroke", followButton)
+followStroke.Color     = Color3.fromRGB(80, 80, 90)
+followStroke.Thickness = 1.5
+
+local function isValidBall(part)
+    return part
+        and part.Parent
+        and part:IsA("BasePart")
+        and part.Name == "TPS"
+        and part:IsDescendantOf(Workspace)
+end
+
+local function findNearestBall()
+    local nearest, nearestDistance = nil, math.huge
+    for _, object in ipairs(Workspace:GetDescendants()) do
+        if object:IsA("BasePart") and object.Name == "TPS" then
+            local distance = (object.Position - myRoot.Position).Magnitude
+            if distance <= followMaxRange and distance < nearestDistance then
+                nearestDistance = distance
+                nearest = object
+            end
+        end
+    end
+    return nearest
+end
+
+local function updateFollowButton()
+    if following then
+        followButton.Text             = "Follow: ON"
+        followButton.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+        followButton.TextColor3       = Color3.fromRGB(255, 255, 255)
+        followStroke.Color            = Color3.fromRGB(100, 255, 150)
+    else
+        followButton.Text             = "Follow: OFF"
+        followButton.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+        followButton.TextColor3       = Color3.fromRGB(200, 200, 200)
+        followStroke.Color            = Color3.fromRGB(80, 80, 90)
+    end
+end
+
+local function startFollow()
+    local ball = findNearestBall()
+    if not ball then return end
+    followTarget = ball
+    following = true
+    updateFollowButton()
+end
+
+local function stopFollow()
+    following = false
+    followTarget = nil
+    updateFollowButton()
+end
+
+local function toggleFollow()
+    if not followEnabled then return end
+    if following then
+        stopFollow()
+    else
+        startFollow()
+    end
+end
+
+followButton.MouseButton1Click:Connect(toggleFollow)
+
+RunService.RenderStepped:Connect(function()
+    if not following then return end
+    if not myCharacter or not myCharacter.Parent then return end
+    if not myHumanoid or myHumanoid.Health <= 0 then return end
+    if not myRoot or not myRoot.Parent then return end
+
+    if not isValidBall(followTarget) then
+        stopFollow()
+        return
+    end
+    if followTarget:IsDescendantOf(myCharacter) then return end
+
+    local toBall = followTarget.Position - myRoot.Position
+    local flatDirection = Vector3.new(toBall.X, 0, toBall.Z)
+    if flatDirection.Magnitude <= followStopRange then return end
+
+    if myHumanoid.MoveDirection.Magnitude > 0.05 then return end
+
+    myHumanoid:Move(flatDirection.Unit, false)
+end)
+
+local dragging  = false
+local dragStart = nil
+local startPos  = nil
+local dragInput = nil
+
+followButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        dragging  = true
+        dragStart = input.Position
+        startPos  = followButton.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+followButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input == dragInput then
+        local delta = input.Position - dragStart
+        followButton.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    myCharacter = newCharacter
+    myHumanoid  = myCharacter:WaitForChild("Humanoid")
+    myRoot      = myCharacter:WaitForChild("HumanoidRootPart")
+    following    = false
+    followTarget = nil
+    updateFollowButton()
+end)
+
+local ballShield = {
+    Enabled = false,
+    Studs   = 10,
+}
+
+RunService.Heartbeat:Connect(function()
+    if not ballShield.Enabled then return end
+
+    local ball = nil
+    for _, object in ipairs(Workspace:GetDescendants()) do
+        if object:IsA("BasePart") and object.Name == "TPS" then
+            ball = object
+            break
+        end
+    end
+    if not ball then return end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local distance = (root.Position - ball.Position).Magnitude
+                if distance <= ballShield.Studs then
+                    local direction = (root.Position - ball.Position).Unit
+                    if direction.Magnitude == 0 or direction ~= direction then
+                        direction = Vector3.new(1, 0, 0)
+                    end
+                    root.CFrame = CFrame.new(ball.Position + direction * (ballShield.Studs + 2))
+                end
+            end
+        end
+    end
+end)
+
+local camera = Workspace.CurrentCamera
+local stretchConnection = nil
+local stretchFactor = 0.65
+
+local function enableStretch()
+    if stretchConnection then return end
+    stretchConnection = RunService.RenderStepped:Connect(function()
+        camera.CFrame = camera.CFrame * CFrame.new(
+            0, 0, 0,
+            1, 0, 0,
+            0, stretchFactor, 0,
+            0, 0, 1
+        )
+    end)
+end
+
+local function disableStretch()
+    if stretchConnection then
+        stretchConnection:Disconnect()
+        stretchConnection = nil
+    end
+end
+
+enableStretch()
+
+local function setFieldOfView(value)
+    local scale = math.clamp(value / 100, 0.1, 1.0)
+    camera.FieldOfView = 70 * (1 / scale)
+end
+
+local autoCatchEnabled  = false
+local autoCatchRange    = 10
+local autoCatchCooldown = 1
+local lastCatchTick     = 0
+
+local function hasGoalkeeperTool()
+    local character = LocalPlayer.Character
+    if not character then return false end
+
+    local tool = character:FindFirstChildOfClass("Tool")
+    if not tool then return false end
+
+    return tool.Name == "GK" or tool.Name == "Gk"
+end
+
+task.spawn(function()
+    while true do
+        task.wait()
+        if autoCatchEnabled and hasGoalkeeperTool() then
+            if tick() - lastCatchTick >= autoCatchCooldown then
+                local character = LocalPlayer.Character
+                if character then
+                    local root = character:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        for _, object in ipairs(Workspace:GetDescendants()) do
+                            if object.Name == "TPS" and (object:IsA("BasePart") or object:IsA("Model")) then
+                                local part = object:IsA("BasePart") and object
+                                    or (object.PrimaryPart or object:FindFirstChildWhichIsA("BasePart"))
+
+                                if part and (part.Position - root.Position).Magnitude <= autoCatchRange then
+                                    pcall(function()
+                                        ReplicatedStorage.CatchBall:FireServer(object)
+                                    end)
+                                    lastCatchTick = tick()
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+local Window = Nexora:CreateWindow({
+    Name = "Nexora Hub",
+    Subtitle = "by riive3lino",
+    LogoID = "94280382992391",
+    LoadingEnabled = true,
+    LoadingTitle = "nexora Hub",
+    LoadingSubtitle = "by riive3lino",
+    ConfigSettings = {
+        RootFolder = "nexoraHubData",
+        ConfigFolder = "nexoraHub",
+    },
+    KeySystem = false,
+})
+
+Window:CreateHomeTab({
+    SupportedExecutors = {
+        "Synapse X",
+        "Krnl",
+        "Fluxus",
+        "Script-Ware",
+        "Delta",
+        "Wave",
+        "Comet",
+        "Madium",
+    },
+    DiscordInvite = "",
+    Icon = 1,
+})
+
+local ReachTab = Window:CreateTab({
+    Name = "Reach",
+    Icon = "open_with",
+    ImageSource = "Material",
+    ShowTitle = true,
+})
+
+ReachTab:CreateSection("Configurações do Reach")
+
+ReachTab:CreateToggle({
+    Name = "Ativar Reach",
+    CurrentValue = false,
+    Callback = function(value)
+        reachConfig.isActive = value
+        Luna:Notification({
+            Title = "Nexora Hub",
+            Content = value and "Reach foi ativado!" or "Reach foi desativado!",
+            Duration = 2,
+        })
+    end,
+}, "ReachToggle")
+
+ReachTab:CreateToggle({
+    Name = "Ocultar Hitbox (Reach Hide)",
+    CurrentValue = true,
+    Callback = function(value)
+        reachConfig.hideReach = value
+    end,
+}, "ReachHideToggle")
+
+ReachTab:CreateSlider({
+    Name = "Distância (Studs)",
+    Range = {1, 6},
+    Increment = 1,
+    CurrentValue = 6,
+    Callback = function(value)
+        reachConfig.reachDistance = value
+    end,
+}, "ReachSlider")
+
+local PlayerTab = Window:CreateTab({
+    Name = "Player",
+    Icon = "person",
+    ImageSource = "Material",
+    ShowTitle = true,
+})
+
+PlayerTab:CreateSection("Auto Follow Bola")
+
+PlayerTab:CreateToggle({
+    Name = "Ativar Auto Follow",
+    CurrentValue = false,
+    Callback = function(value)
+        followEnabled = value
+        followGui.Enabled = value
+        if not value then
+            stopFollow()
+        end
+        Luna:Notification({
+            Title = "Auto Follow",
+            Content = value and "Auto Follow Habilitado!" or "Auto Follow Desabilitado!",
+            Duration = 2,
+        })
+    end,
+}, "AutoBallToggle")
+
+PlayerTab:CreateSection("Shield da Bola (Anti-Inimigo)")
+
+PlayerTab:CreateToggle({
+    Name = "Ativar Ball Shield",
+    CurrentValue = false,
+    Callback = function(value)
+        ballShield.Enabled = value
+        Luna:Notification({
+            Title = "Ball Shield",
+            Content = value and "Ball Shield Ativado!" or "Ball Shield Desativado!",
+            Duration = 2,
+        })
+    end,
+}, "ShieldToggle")
+
+PlayerTab:CreateSlider({
+    Name = "Distância do Shield (Studs)",
+    Range = {5, 30},
+    Increment = 1,
+    CurrentValue = 10,
+    Callback = function(value)
+        ballShield.Studs = value
+    end,
+}, "ShieldSlider")
+
+PlayerTab:CreateSection("Interface Flutuante Mobile")
+
+PlayerTab:CreateToggle({
+    Name = "Mostrar Botão Flutuante",
+    CurrentValue = true,
+    Callback = function(value)
+        followButton.Visible = value
+    end,
+}, "AutoBallMobileToggle")
+
+local GoalkeeperTab = Window:CreateTab({
+    Name = "Goalkeeper",
+    Icon = "sports_handball",
+    ImageSource = "Material",
+    ShowTitle = true,
+})
+
+GoalkeeperTab:CreateSection("Auto Catch (Goleiro)")
+
+GoalkeeperTab:CreateToggle({
+    Name = "Ativar Auto Catch",
+    CurrentValue = false,
+    Callback = function(value)
+        autoCatchEnabled = value
+        Luna:Notification({
+            Title = "Goalkeeper",
+            Content = value and "Auto Catch Ativado!" or "Auto Catch Desativado!",
+            Duration = 2,
+        })
+    end,
+}, "AutoCatchToggle")
+
+GoalkeeperTab:CreateSlider({
+    Name = "Alcance da Defesa (Studs)",
+    Range = {1, 50},
+    Increment = 1,
+    CurrentValue = 10,
+    Callback = function(value)
+        autoCatchRange = value
+    end,
+}, "AutoCatchSlider")
+
+local MiscTab = Window:CreateTab({
+    Name = "Misc",
+    Icon = "settings",
+    ImageSource = "Material",
+    ShowTitle = true,
+})
+
+MiscTab:CreateSection("Ajustes Visuais")
+
+MiscTab:CreateToggle({
+    Name = "Stretched Resolution",
+    CurrentValue = true,
+    Callback = function(value)
+        if value then
+            enableStretch()
+        else
+            disableStretch()
+        end
+    end,
+}, "StretchedToggle")
+
+MiscTab:CreateSlider({
+    Name = "Ajuste de FOV / Resolução",
+    Range = {10, 100},
+    Increment = 1,
+    CurrentValue = 100,
+    Callback = function(value)
+        setFieldOfView(value)
+    end,
+}, "ResolutionSlider")
+
+local ConfigTab = Window:CreateTab({
+    Name = "Config",
+    Icon = "save",
+    ImageSource = "Material",
+    ShowTitle = true,
+})
+
+ConfigTab:BuildConfigSection()
