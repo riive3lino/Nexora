@@ -613,7 +613,7 @@ ReachTab:CreateToggle({
 
 ReachTab:CreateSlider({
     Name = "Distância (Studs)",
-    Range = {1, 6},
+    Range = {1, 30},
     Increment = 1,
     CurrentValue = 6,
     Callback = function(value)
