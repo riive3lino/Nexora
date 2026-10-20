@@ -55,226 +55,168 @@ local Workspace         = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
 local reachConfig = {
-    isActive           = false,
-    reachDistance      = 15,
-    ballName           = "TPS",
-    hitboxColor        = Color3.fromRGB(255, 0, 0),
-    hitboxTransparency = 0.8,
-    hideReach          = true,
+    isActive      = false,
+    reachDistance = 3.5,
+    sphereEnabled = false,
 }
 
-local LEG_NAMES = {
-    "Left Leg", "Right Leg",
-    "LeftUpperLeg", "RightUpperLeg",
-    "LeftLowerLeg", "RightLowerLeg",
-    "Left Foot", "Right Foot", "LeftFoot", "RightFoot",
-}
+-- Detecção de bola (cache de candidatas)
+local BallCandidates   = {}
+local CachedBall       = nil
+local LastBallScan     = 0
+local BallScanInterval = 0.05
 
-local STADIUM_NAMES = {
-    ["WorkspaceStadiumSounds"] = true,
-    ["StadiumFolder"]          = true,
-    ["Stadiumfolder"]          = true,
-    ["Stadium"]                = true,
-}
-
-local function isInStadium(part)
-    local parent = part.Parent
-    while parent do
-        if parent == Workspace then
-            return false
-        end
-        if STADIUM_NAMES[parent.Name] then
-            return true
-        end
-        parent = parent.Parent
-    end
-    return false
-end
-
-local function pickBestBall(candidates)
-    local best = nil
-    local bestScore = -math.huge
-    local cameraPos = Workspace.CurrentCamera.CFrame.Position
-
-    for _, part in ipairs(candidates) do
-        if part and part.Parent then
-            local ok, position = pcall(function() return part.Position end)
-            if ok and position and position.Y > -100 and position.Magnitude < 1e6 then
-                local score = isInStadium(part) and 1000 or 100
-                score = score - (cameraPos - position).Magnitude * 0.01
-                if score > bestScore then
-                    bestScore = score
-                    best = part
-                end
-            end
-        end
+local function IsBall(obj)
+    if not obj or not obj:IsA("BasePart") then
+        return false
     end
 
-    return best
+    local name = obj.Name:lower()
+
+    return obj.Name == "TPS"
+        or name:find("ball") ~= nil
+        or name:find("bola") ~= nil
+        or name:find("football") ~= nil
+        or name:find("soccer") ~= nil
 end
 
-local function createHitbox()
-    local part = Instance.new("Part")
-    part.Name         = "op"
-    part.Shape        = Enum.PartType.Block
-    part.Size         = Vector3.new(6, 6, 6)
-    part.Color        = reachConfig.hitboxColor
-    part.Material     = Enum.Material.Neon
-    part.Transparency = 1
-    part.CanCollide   = false
-    part.CanTouch     = true
-    part.CanQuery     = true
-    part.Anchored     = true
-    part.Massless     = true
-    part.Parent       = Workspace
-    return part
+local function AddBallCandidate(obj)
+    if IsBall(obj) then
+        BallCandidates[obj] = true
+    end
 end
 
-local hitbox = createHitbox()
+for _, obj in ipairs(Workspace:GetDescendants()) do
+    AddBallCandidate(obj)
+end
 
-task.spawn(function()
-    while true do
-        task.wait(2)
-        if not hitbox or not hitbox.Parent then
-            hitbox = createHitbox()
-        end
+Workspace.DescendantAdded:Connect(AddBallCandidate)
+
+Workspace.DescendantRemoving:Connect(function(obj)
+    BallCandidates[obj] = nil
+    if CachedBall == obj then
+        CachedBall = nil
     end
 end)
 
-local legParts = {}
-local cachedCharacter = nil
+local function GetClosestBall(rootPart)
+    if not rootPart or not rootPart.Parent then
+        return nil
+    end
 
-local function refreshLegParts(force)
-    local character = LocalPlayer.Character
-    if not character then
-        legParts = {}
-        cachedCharacter = nil
+    local now = os.clock()
+    if now - LastBallScan < BallScanInterval then
+        return CachedBall
+    end
+    LastBallScan = now
+
+    local closestBall = nil
+    local closestDistance = math.huge
+    local rootPosition = rootPart.Position
+
+    for ball in pairs(BallCandidates) do
+        if not ball.Parent or not IsBall(ball) then
+            BallCandidates[ball] = nil
+        else
+            local offset = ball.Position - rootPosition
+            local distanceSquared = offset.X * offset.X
+                + offset.Y * offset.Y
+                + offset.Z * offset.Z
+
+            if distanceSquared < closestDistance then
+                closestDistance = distanceSquared
+                closestBall = ball
+            end
+        end
+    end
+
+    CachedBall = closestBall
+    return closestBall
+end
+
+-- Esfera visual do alcance
+local ReachSphere = nil
+
+local function updateSphere()
+    if not reachConfig.sphereEnabled then
+        if ReachSphere then
+            ReachSphere:Destroy()
+            ReachSphere = nil
+        end
         return
     end
 
-    if not force and cachedCharacter == character then
-        local allValid = true
-        for _, part in ipairs(legParts) do
-            if not part or not part.Parent then
-                allValid = false
-                break
-            end
-        end
-        if allValid then
-            return
-        end
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    if not ReachSphere then
+        ReachSphere = Instance.new("Part")
+        ReachSphere.Name         = "NexoraReachSphere"
+        ReachSphere.Shape        = Enum.PartType.Ball
+        ReachSphere.Anchored     = true
+        ReachSphere.CanCollide   = false
+        ReachSphere.CanTouch     = false
+        ReachSphere.CanQuery     = false
+        ReachSphere.Massless     = true
+        ReachSphere.Material     = Enum.Material.ForceField
+        ReachSphere.Color        = Color3.fromRGB(0, 105, 0)
+        ReachSphere.Transparency = 0.8
+        ReachSphere.CastShadow   = false
+        ReachSphere.Parent       = Workspace
     end
 
-    cachedCharacter = character
+    local diameter = reachConfig.reachDistance * 2
+    ReachSphere.Size = Vector3.new(diameter, diameter, diameter)
+    ReachSphere.CFrame = root.CFrame
+end
 
-    local found = {}
-    for _, name in ipairs(LEG_NAMES) do
-        local part = character:FindFirstChild(name)
-        if part and part:IsA("BasePart") then
-            pcall(function()
-                part.CanTouch = true
-                part.CanQuery = true
-            end)
-            table.insert(found, part)
-        end
+RunService.RenderStepped:Connect(function()
+    if not reachConfig.sphereEnabled or not ReachSphere then return end
+
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if root then
+        ReachSphere.Position = root.Position
     end
-    legParts = found
-end
+end)
 
-local function fireTouch(partA, partB)
-    pcall(firetouchinterest, partA, partB, 0)
-    pcall(firetouchinterest, partA, partB, 1)
-end
-
-local function hideHitbox()
-    pcall(function()
-        hitbox.CFrame = CFrame.new(0, -500, 0)
-    end)
-end
-
+-- Loop do reach (mesmo raio da esfera, centro no jogador)
 local lastReachTick = 0
+local ReachInterval = 0.035
 
-local function updateReach()
+RunService.Heartbeat:Connect(function()
     if not reachConfig.isActive then return end
+    if not firetouchinterest then return end
 
-    local now = tick()
-    if now - lastReachTick < 0.15 then return end
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not root or not humanoid or humanoid.Health <= 0 then return end
+
+    local now = os.clock()
+    if now - lastReachTick < ReachInterval then return end
     lastReachTick = now
 
-    local character = LocalPlayer.Character
-    if not character then
-        hideHitbox()
-        return
-    end
+    local ball = GetClosestBall(root)
+    if not ball or not ball.Parent then return end
 
-    refreshLegParts(false)
+    local distance = (ball.Position - root.Position).Magnitude
+    local ballRadius = math.max(ball.Size.X, ball.Size.Y, ball.Size.Z) / 2
 
-    local balls = {}
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Name == reachConfig.ballName then
-            local ok, position = pcall(function() return obj.Position end)
-            if ok and position and position.Y > -100 and position.Magnitude < 1e6 then
-                table.insert(balls, obj)
-                pcall(function()
-                    obj.CanTouch = true
-                    obj.CanQuery = true
-                end)
-            end
+    if distance - ballRadius > reachConfig.reachDistance then return end
+
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            firetouchinterest(part, ball, 0)
+            firetouchinterest(part, ball, 1)
         end
     end
-
-    if #balls == 0 then
-        hideHitbox()
-        return
-    end
-
-    local targetBall = pickBestBall(balls)
-    if not targetBall then
-        hideHitbox()
-        return
-    end
-
-    local distance = reachConfig.reachDistance
-
-    hitbox.Transparency = reachConfig.hideReach and 1 or reachConfig.hitboxTransparency
-    hitbox.Size = Vector3.new(distance, distance, distance)
-    pcall(function()
-        hitbox.CFrame = targetBall.CFrame
-    end)
-
-    if distance > 0 then
-        local maxSqDistance = distance * distance
-        for _, ball in ipairs(balls) do
-            local ballPosition = ball.Position
-            for _, leg in ipairs(legParts) do
-                if leg and leg.Parent then
-                    local delta = leg.Position - ballPosition
-                    if delta.X * delta.X + delta.Y * delta.Y + delta.Z * delta.Z <= maxSqDistance then
-                        fireTouch(hitbox, leg)
-                        fireTouch(ball, leg)
-                    end
-                end
-            end
-        end
-    end
-end
-
-RunService.Heartbeat:Connect(updateReach)
-
-LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    cachedCharacter = nil
-    newCharacter:WaitForChild("HumanoidRootPart", 5)
-    task.wait(0.5)
-    refreshLegParts(true)
 end)
 
-task.spawn(function()
-    while true do
-        task.wait(1)
-        if reachConfig.isActive then
-            refreshLegParts(false)
-        end
-    end
+LocalPlayer.CharacterAdded:Connect(function()
+    CachedBall = nil
+    LastBallScan = 0
 end)
 
 local following        = false
@@ -604,20 +546,24 @@ ReachTab:CreateToggle({
 }, "ReachToggle")
 
 ReachTab:CreateToggle({
-    Name = "Ocultar Hitbox (Reach Hide)",
-    CurrentValue = true,
+    Name = "Reach Sphere (mostrar alcance)",
+    CurrentValue = false,
     Callback = function(value)
-        reachConfig.hideReach = value
+        reachConfig.sphereEnabled = value
+        updateSphere()
     end,
-}, "ReachHideToggle")
+}, "ReachSphereToggle")
 
 ReachTab:CreateSlider({
     Name = "Distância (Studs)",
-    Range = {1, 30},
-    Increment = 1,
-    CurrentValue = 6,
+    Range = {1, 10},
+    Increment = 0.5,
+    CurrentValue = 3.5,
     Callback = function(value)
         reachConfig.reachDistance = value
+        if reachConfig.sphereEnabled then
+            updateSphere()
+        end
     end,
 }, "ReachSlider")
 
