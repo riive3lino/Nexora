@@ -1,0 +1,204 @@
+-- Nexora Loader (Key System)
+-- Uso: loadstring(game:HttpGet("URL_DO_SEU_LOADER"))()
+
+local API_URL  = "https://nexora-keys.nexorakeys.workers.dev"
+local SCRIPT_URL = "https://raw.githubusercontent.com/riive3lino/Nexora/refs/heads/main/source.lua"
+local KEY_FILE = "Nexora/key.txt"
+local GET_KEY_LINK = "" -- opcional: link onde o usuário consegue a key (Discord, site...)
+
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+
+local request = (syn and syn.request) or (http and http.request) or http_request or request
+
+local function validate(key)
+	if not request then
+		return false, "Seu executor não suporta requisições HTTP."
+	end
+
+	local ok, res = pcall(request, {
+		Url = API_URL .. "/api/validate",
+		Method = "POST",
+		Headers = { ["Content-Type"] = "application/json" },
+		Body = HttpService:JSONEncode({ key = key }),
+	})
+	if not ok or not res or not res.Body then
+		return false, "Não foi possível conectar ao servidor."
+	end
+
+	local decoded
+	local parsed = pcall(function()
+		decoded = HttpService:JSONDecode(res.Body)
+	end)
+	if not parsed or type(decoded) ~= "table" then
+		return false, "Resposta inválida do servidor."
+	end
+	if not decoded.valid then
+		return false, decoded.error or "Key inválida."
+	end
+
+	return true, decoded
+end
+
+local function runScript()
+	local okGet, source = pcall(function()
+		return game:HttpGet(SCRIPT_URL)
+	end)
+	if not okGet then
+		warn("[Nexora] Não foi possível baixar o script.")
+		return false
+	end
+	local fn, err = loadstring(source)
+	if not fn then
+		warn("[Nexora] Erro ao compilar o script: " .. tostring(err))
+		return false
+	end
+	task.spawn(fn)
+	return true
+end
+
+local function saveKey(key)
+	pcall(function()
+		if makefolder and not isfolder("Nexora") then makefolder("Nexora") end
+		if writefile then writefile(KEY_FILE, key) end
+	end)
+end
+
+local function readSavedKey()
+	local ok, key = pcall(function()
+		if isfile and isfile(KEY_FILE) then return readfile(KEY_FILE) end
+	end)
+	return ok and key or nil
+end
+
+local function formatRemaining(expiresAt)
+	local left = math.max(0, math.floor(expiresAt / 1000 - os.time()))
+	local d, h = math.floor(left / 86400), math.floor(left % 86400 / 3600)
+	local m = math.floor(left % 3600 / 60)
+	if d > 0 then return string.format("%dd %dh", d, h) end
+	return string.format("%dh %dm", h, m)
+end
+
+-- Tenta entrar automaticamente com a key salva
+local saved = readSavedKey()
+if saved and saved ~= "" then
+	local ok, data = validate(saved)
+	if ok and runScript() then
+		return
+	end
+end
+
+-- Interface
+local gui = Instance.new("ScreenGui")
+gui.Name = "NexoraKey"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 999999
+gui.Parent = (gethui and gethui()) or CoreGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 360, 0, 210)
+frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.BackgroundColor3 = Color3.fromRGB(20, 18, 32)
+frame.BorderSizePixel = 0
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+local stroke = Instance.new("UIStroke", frame)
+stroke.Color = Color3.fromRGB(125, 70, 255)
+stroke.Thickness = 1.5
+
+local function label(text, size, y, bold)
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.Size = UDim2.new(1, -40, 0, size + 4)
+	l.Position = UDim2.new(0, 20, 0, y)
+	l.Text = text
+	l.TextColor3 = Color3.fromRGB(235, 232, 255)
+	l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+	l.TextSize = size
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Parent = frame
+	return l
+end
+
+label("NEXORA", 20, 14, true)
+label("Insira sua key para continuar", 13, 42, false)
+
+local box = Instance.new("TextBox")
+box.Size = UDim2.new(1, -40, 0, 36)
+box.Position = UDim2.new(0, 20, 0, 76)
+box.BackgroundColor3 = Color3.fromRGB(34, 30, 54)
+box.TextColor3 = Color3.fromRGB(255, 255, 255)
+box.PlaceholderText = "NEXORA-XXXX-XXXX-XXXX"
+box.PlaceholderColor3 = Color3.fromRGB(130, 125, 160)
+box.Font = Enum.Font.Gotham
+box.TextSize = 14
+box.ClearTextOnFocus = false
+box.Text = ""
+box.Parent = frame
+Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+
+local status = label("", 12, 118, false)
+status.TextColor3 = Color3.fromRGB(255, 120, 120)
+
+local function button(text, x, w, color)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, w, 0, 36)
+	b.Position = UDim2.new(0, x, 0, 156)
+	b.BackgroundColor3 = color
+	b.Text = text
+	b.TextColor3 = Color3.fromRGB(255, 255, 255)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 13
+	b.AutoButtonColor = true
+	b.Parent = frame
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+	return b
+end
+
+local hasLink = GET_KEY_LINK ~= ""
+local submit = button("Verificar key", hasLink and 180 or 20, hasLink and 160 or 320, Color3.fromRGB(125, 70, 255))
+
+if hasLink then
+	local get = button("Pegar key", 20, 150, Color3.fromRGB(50, 44, 80))
+	get.MouseButton1Click:Connect(function()
+		if setclipboard then
+			setclipboard(GET_KEY_LINK)
+			status.TextColor3 = Color3.fromRGB(150, 255, 170)
+			status.Text = "Link copiado para a área de transferência."
+		else
+			status.Text = GET_KEY_LINK
+		end
+	end)
+end
+
+local busy = false
+submit.MouseButton1Click:Connect(function()
+	if busy then return end
+	local key = box.Text:gsub("%s+", "")
+	if key == "" then
+		status.TextColor3 = Color3.fromRGB(255, 120, 120)
+		status.Text = "Digite uma key."
+		return
+	end
+
+	busy = true
+	status.TextColor3 = Color3.fromRGB(200, 200, 255)
+	status.Text = "Verificando..."
+
+	local ok, data = validate(key)
+	if ok then
+		saveKey(key)
+		status.TextColor3 = Color3.fromRGB(150, 255, 170)
+		status.Text = "Key válida! Tempo restante: " .. formatRemaining(data.expiresAt)
+		task.wait(0.8)
+		gui:Destroy()
+		runScript()
+	else
+		status.TextColor3 = Color3.fromRGB(255, 120, 120)
+		status.Text = tostring(data)
+		busy = false
+	end
+end)
