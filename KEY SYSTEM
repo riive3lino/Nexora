@@ -40,12 +40,1667 @@ local function validate(key)
 	return true, decoded
 end
 
-local function runHub()
-local Nexora = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/riive3lino/Nexora/main/source.lua"
-))()
-local Luna = Nexora
+-- NeonUI (biblioteca de interface embutida)
+local NeonUI = (function()
+local NeonUI = {}
 
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Players          = game:GetService("Players")
+local HttpService      = game:GetService("HttpService")
+local TextService      = game:GetService("TextService")
+local CoreGui          = game:GetService("CoreGui")
+
+local Theme = {
+    Background  = Color3.fromRGB(9, 11, 24),
+    Sidebar     = Color3.fromRGB(13, 16, 34),
+    Card        = Color3.fromRGB(22, 27, 56),
+    CardHover   = Color3.fromRGB(32, 38, 76),
+    Text        = Color3.fromRGB(238, 242, 255),
+    SubText     = Color3.fromRGB(136, 146, 190),
+    Off         = Color3.fromRGB(46, 52, 88),
+    Accent      = Color3.fromRGB(74, 128, 255),   -- azul
+    AccentLight = Color3.fromRGB(156, 92, 255),   -- roxo
+}
+
+local Fonts = {
+    Bold   = Enum.Font.GothamBold,
+    Medium = Enum.Font.GothamMedium,
+    Light  = Enum.Font.Gotham,
+}
+
+-- Transparência (efeito vidro)
+local glassList  = {}
+local glassExtra = 0
+
+local function glass(object, base)
+    object.BackgroundTransparency = math.clamp(base + glassExtra, 0, 0.95)
+    table.insert(glassList, { obj = object, base = base })
+end
+
+-- Helpers ------------------------------------------------------------
+
+local function tween(object, properties, duration)
+    TweenService:Create(
+        object,
+        TweenInfo.new(duration or 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        properties
+    ):Play()
+end
+
+local function corner(parent, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = (radius == "full") and UDim.new(1, 0) or UDim.new(0, radius or 10)
+    c.Parent = parent
+    return c
+end
+
+local function stroke(parent, color, thickness, transparency)
+    local s = Instance.new("UIStroke")
+    s.Color = color
+    s.Thickness = thickness or 1
+    s.Transparency = transparency or 0
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = parent
+    return s
+end
+
+local function accentGradient(parent, rotation)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new(Theme.Accent, Theme.AccentLight)
+    g.Rotation = rotation or 0
+    g.Parent = parent
+    return g
+end
+
+local function newLabel(parent, text, textSize, font, color)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextSize = textSize
+    l.Font = font or Fonts.Medium
+    l.TextColor3 = color or Theme.Text
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.TextYAlignment = Enum.TextYAlignment.Center
+    l.TextTruncate = Enum.TextTruncate.AtEnd
+    l.Parent = parent
+    return l
+end
+
+local function isPress(input)
+    return input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function isMove(input)
+    return input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
+end
+
+-- Retorna uma tabela com "moved" (true se houve arraste de verdade)
+local function makeDraggable(handle, target)
+    local state = { moved = false }
+    local dragging, dragStart, startPos
+
+    handle.InputBegan:Connect(function(input)
+        if isPress(input) then
+            dragging  = true
+            state.moved = false
+            dragStart = input.Position
+            startPos  = target.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and isMove(input) then
+            local delta = input.Position - dragStart
+            if delta.Magnitude > 6 then
+                state.moved = true
+            end
+            target.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    return state
+end
+
+local function element(page, height)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, 0, 0, height)
+    f.BackgroundColor3 = Theme.Card
+    f.BorderSizePixel = 0
+    f.Parent = page
+    glass(f, 0.42)
+    corner(f, 10)
+
+    local s = stroke(f, Color3.new(1, 1, 1), 1, 0.92)
+
+    f.MouseEnter:Connect(function()
+        tween(f, { BackgroundColor3 = Theme.CardHover }, 0.15)
+        tween(s, { Transparency = 0.8 }, 0.15)
+    end)
+    f.MouseLeave:Connect(function()
+        tween(f, { BackgroundColor3 = Theme.Card }, 0.2)
+        tween(s, { Transparency = 0.92 }, 0.2)
+    end)
+
+    return f, s
+end
+
+-- Nome + descrição (opcional) de um elemento
+local function titleBlock(f, opts, rightPad)
+    local hasDesc = opts.Description ~= nil and opts.Description ~= ""
+
+    local name = newLabel(f, opts.Name, 14, Fonts.Medium, Theme.Text)
+    name.Position = UDim2.new(0, 16, 0, hasDesc and 11 or 0)
+    name.Size = UDim2.new(1, -rightPad, 0, hasDesc and 20 or f.Size.Y.Offset)
+
+    if hasDesc then
+        local d = newLabel(f, opts.Description, 12, Fonts.Light, Theme.SubText)
+        d.Position = UDim2.new(0, 16, 0, 32)
+        d.Size = UDim2.new(1, -rightPad, 0, 18)
+    end
+end
+
+local function elementHeight(opts, normal, withDesc)
+    if opts.Description ~= nil and opts.Description ~= "" then
+        return withDesc
+    end
+    return normal
+end
+
+-- Janela -------------------------------------------------------------
+
+function NeonUI:CreateWindow(config)
+    config = config or {}
+    local title         = config.Name or "NEON"
+    local subtitle      = config.Subtitle
+    local toggleKey     = config.ToggleKey or Enum.KeyCode.RightShift
+    local configFolder  = config.ConfigFolder or "NeonUI"
+    local loadingEnabled = config.Loading ~= false
+
+    if config.Accent then
+        Theme.Accent = config.Accent
+    end
+    if config.Accent2 then
+        Theme.AccentLight = config.Accent2
+    end
+
+    glassList  = {}
+    glassExtra = 0
+
+    local camera   = workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+    local width    = math.clamp(viewport.X * 0.88, 440, 640)
+    local height   = math.clamp(viewport.Y * 0.82, 290, 420)
+    local sideWidth = width < 520 and 132 or 168
+    local headerHeight = 56
+
+    local Window = {}
+    local tabs   = {}
+    local Flags  = {}
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "NeonUI"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 999999
+    gui.Parent = (gethui and gethui()) or CoreGui
+
+    -- Conteiner (sombra + janela)
+    local holder = Instance.new("Frame")
+    holder.Name = "Window"
+    holder.Size = UDim2.new(0, width, 0, height)
+    holder.Position = UDim2.new(0.5, 0, 0.5, 0)
+    holder.AnchorPoint = Vector2.new(0.5, 0.5)
+    holder.BackgroundTransparency = 1
+    holder.Visible = false
+    holder.Parent = gui
+
+    local scale = Instance.new("UIScale")
+    scale.Scale = 0.92
+    scale.Parent = holder
+
+    local shadow = Instance.new("ImageLabel")
+    shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 6)
+    shadow.Size = UDim2.new(1, 80, 1, 80)
+    shadow.BackgroundTransparency = 1
+    shadow.Image = "rbxassetid://6014261993"
+    shadow.ImageColor3 = Color3.new(0, 0, 0)
+    shadow.ImageTransparency = 0.5
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(49, 49, 450, 450)
+    shadow.ZIndex = 0
+    shadow.Parent = holder
+
+    local main = Instance.new("Frame")
+    main.Name = "Main"
+    main.Size = UDim2.new(1, 0, 1, 0)
+    main.BackgroundColor3 = Theme.Background
+    main.BorderSizePixel = 0
+    main.ClipsDescendants = true
+    main.Parent = holder
+    glass(main, 0.2)
+    corner(main, 16)
+    stroke(main, Color3.new(1, 1, 1), 1, 0.86)
+
+    -- Botão Abrir/Fechar (fica no topo da tela)
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(0, 128, 0, 34)
+    toggleButton.Position = UDim2.new(0.5, -64, 0, 12)
+    toggleButton.BackgroundColor3 = Theme.Sidebar
+    toggleButton.Text = "Fechar Hub"
+    toggleButton.Font = Fonts.Bold
+    toggleButton.TextSize = 13
+    toggleButton.TextColor3 = Theme.Text
+    toggleButton.AutoButtonColor = false
+    toggleButton.Visible = false
+    toggleButton.Parent = gui
+    glass(toggleButton, 0.25)
+    corner(toggleButton, "full")
+    accentGradient(stroke(toggleButton, Color3.new(1, 1, 1), 1.5, 0.1), 0)
+
+    local toggleDrag = makeDraggable(toggleButton, toggleButton)
+
+    local visible = false
+    local loading = loadingEnabled
+    local bindingActive = false
+    local lastBind = 0
+
+    local function setVisible(value)
+        visible = value
+        toggleButton.Text = value and "Fechar Hub" or "Abrir Hub"
+        if value then
+            scale.Scale = 0.92
+            holder.Visible = true
+            tween(scale, { Scale = 1 }, 0.22)
+        else
+            tween(scale, { Scale = 0.92 }, 0.15)
+            task.delay(0.16, function()
+                if not visible then
+                    holder.Visible = false
+                end
+            end)
+        end
+    end
+
+    toggleButton.MouseButton1Click:Connect(function()
+        if toggleDrag.moved or loading then return end
+        setVisible(not visible)
+    end)
+
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if processed or loading or bindingActive then return end
+        if os.clock() - lastBind < 0.25 then return end
+        if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == toggleKey then
+            setVisible(not visible)
+        end
+    end)
+
+    -- Barra lateral --------------------------------------------------
+    local sidebar = Instance.new("Frame")
+    sidebar.Size = UDim2.new(0, sideWidth, 1, 0)
+    sidebar.BackgroundColor3 = Theme.Sidebar
+    sidebar.BorderSizePixel = 0
+    sidebar.Parent = main
+    glass(sidebar, 0.3)
+
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(0, 1, 1, 0)
+    divider.Position = UDim2.new(1, -1, 0, 0)
+    divider.BackgroundColor3 = Color3.new(1, 1, 1)
+    divider.BackgroundTransparency = 0.92
+    divider.BorderSizePixel = 0
+    divider.Parent = sidebar
+
+    -- Marca (logo + nome)
+    local brand = Instance.new("Frame")
+    brand.Size = UDim2.new(1, 0, 0, 68)
+    brand.BackgroundTransparency = 1
+    brand.Parent = sidebar
+
+    local logo = Instance.new("Frame")
+    logo.Size = UDim2.new(0, 34, 0, 34)
+    logo.Position = UDim2.new(0, 14, 0, 17)
+    logo.BackgroundColor3 = Color3.new(1, 1, 1)
+    logo.BorderSizePixel = 0
+    logo.Parent = brand
+    corner(logo, 10)
+    accentGradient(logo, 45)
+
+    local logoText = newLabel(logo, string.sub(title, 1, 1), 17, Fonts.Bold, Color3.new(1, 1, 1))
+    logoText.Size = UDim2.new(1, 0, 1, 0)
+    logoText.TextXAlignment = Enum.TextXAlignment.Center
+
+    local brandTitle = newLabel(brand, title, 14, Fonts.Bold, Theme.Text)
+    brandTitle.Position = UDim2.new(0, 56, 0, subtitle and 18 or 0)
+    brandTitle.Size = UDim2.new(1, -64, 0, subtitle and 18 or 68)
+
+    if subtitle then
+        local sub = newLabel(brand, subtitle, 11, Fonts.Light, Theme.SubText)
+        sub.Position = UDim2.new(0, 56, 0, 36)
+        sub.Size = UDim2.new(1, -64, 0, 14)
+    end
+
+    -- Lista de abas
+    local tabHolder = Instance.new("ScrollingFrame")
+    tabHolder.Position = UDim2.new(0, 0, 0, 68)
+    tabHolder.Size = UDim2.new(1, 0, 1, -136)
+    tabHolder.BackgroundTransparency = 1
+    tabHolder.BorderSizePixel = 0
+    tabHolder.ScrollBarThickness = 0
+    tabHolder.CanvasSize = UDim2.new(0, 0, 0, 0)
+    tabHolder.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    tabHolder.Parent = sidebar
+
+    local tabLayout = Instance.new("UIListLayout")
+    tabLayout.Padding = UDim.new(0, 4)
+    tabLayout.Parent = tabHolder
+
+    local tabPadding = Instance.new("UIPadding")
+    tabPadding.PaddingLeft = UDim.new(0, 10)
+    tabPadding.PaddingRight = UDim.new(0, 10)
+    tabPadding.PaddingTop = UDim.new(0, 4)
+    tabPadding.Parent = tabHolder
+
+    -- Perfil do jogador (rodapé)
+    local profile = Instance.new("Frame")
+    profile.Position = UDim2.new(0, 10, 1, -60)
+    profile.Size = UDim2.new(1, -20, 0, 50)
+    profile.BackgroundColor3 = Theme.Card
+    profile.BorderSizePixel = 0
+    profile.Parent = sidebar
+    glass(profile, 0.42)
+    corner(profile, 12)
+    stroke(profile, Color3.new(1, 1, 1), 1, 0.92)
+
+    local avatar = Instance.new("ImageLabel")
+    avatar.Size = UDim2.new(0, 34, 0, 34)
+    avatar.Position = UDim2.new(0, 8, 0.5, -17)
+    avatar.BackgroundColor3 = Theme.Off
+    avatar.BorderSizePixel = 0
+    avatar.Image = ""
+    avatar.Parent = profile
+    corner(avatar, "full")
+
+    local localPlayer = Players.LocalPlayer
+
+    local profileName = newLabel(profile, localPlayer.DisplayName, 13, Fonts.Bold, Theme.Text)
+    profileName.Position = UDim2.new(0, 50, 0, 8)
+    profileName.Size = UDim2.new(1, -56, 0, 17)
+
+    local profileUser = newLabel(profile, "@" .. localPlayer.Name, 11, Fonts.Light, Theme.SubText)
+    profileUser.Position = UDim2.new(0, 50, 0, 25)
+    profileUser.Size = UDim2.new(1, -56, 0, 15)
+
+    task.spawn(function()
+        local ok, image = pcall(function()
+            return Players:GetUserThumbnailAsync(
+                localPlayer.UserId,
+                Enum.ThumbnailType.HeadShot,
+                Enum.ThumbnailSize.Size100x100
+            )
+        end)
+        if ok and image and avatar.Parent then
+            avatar.Image = image
+        end
+    end)
+
+    -- Cabeçalho (título da aba + controles) ---------------------------
+    local header = Instance.new("Frame")
+    header.Position = UDim2.new(0, sideWidth, 0, 0)
+    header.Size = UDim2.new(1, -sideWidth, 0, headerHeight)
+    header.BackgroundTransparency = 1
+    header.Parent = main
+
+    local pageTitle = newLabel(header, "", 20, Fonts.Bold, Theme.Text)
+    pageTitle.Position = UDim2.new(0, 22, 0, 0)
+    pageTitle.Size = UDim2.new(1, -120, 1, 0)
+
+    local function headerButton(text, xOffset)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0, 30, 0, 30)
+        b.Position = UDim2.new(1, xOffset, 0.5, -15)
+        b.BackgroundColor3 = Theme.Card
+        b.Text = text
+        b.Font = Fonts.Bold
+        b.TextSize = 16
+        b.TextColor3 = Theme.SubText
+        b.AutoButtonColor = false
+        b.Parent = header
+        glass(b, 0.45)
+        corner(b, 8)
+        return b
+    end
+
+    local minimizeButton = headerButton("-", -78)
+    local closeButton = headerButton("x", -42)
+
+    minimizeButton.MouseEnter:Connect(function()
+        tween(minimizeButton, { BackgroundColor3 = Theme.CardHover, TextColor3 = Theme.Text }, 0.15)
+    end)
+    minimizeButton.MouseLeave:Connect(function()
+        tween(minimizeButton, { BackgroundColor3 = Theme.Card, TextColor3 = Theme.SubText }, 0.15)
+    end)
+    minimizeButton.MouseButton1Click:Connect(function()
+        setVisible(false)
+    end)
+
+    local confirming = false
+    closeButton.MouseEnter:Connect(function()
+        tween(closeButton, { BackgroundColor3 = Color3.fromRGB(200, 50, 70), TextColor3 = Color3.new(1, 1, 1) }, 0.15)
+    end)
+    closeButton.MouseLeave:Connect(function()
+        if not confirming then
+            tween(closeButton, { BackgroundColor3 = Theme.Card, TextColor3 = Theme.SubText }, 0.15)
+        end
+    end)
+    closeButton.MouseButton1Click:Connect(function()
+        if confirming then
+            gui:Destroy()
+            return
+        end
+        confirming = true
+        closeButton.Text = "?"
+        task.delay(2, function()
+            confirming = false
+            if closeButton.Parent then
+                closeButton.Text = "x"
+                tween(closeButton, { BackgroundColor3 = Theme.Card, TextColor3 = Theme.SubText }, 0.15)
+            end
+        end)
+    end)
+
+    makeDraggable(header, holder)
+    makeDraggable(brand, holder)
+
+    -- Área das páginas
+    local pagesArea = Instance.new("Frame")
+    pagesArea.Position = UDim2.new(0, sideWidth, 0, headerHeight)
+    pagesArea.Size = UDim2.new(1, -sideWidth, 1, -headerHeight)
+    pagesArea.BackgroundTransparency = 1
+    pagesArea.Parent = main
+
+    -- Notificações ---------------------------------------------------
+    local notifyHolder = Instance.new("Frame")
+    notifyHolder.Size = UDim2.new(0, 280, 1, -16)
+    notifyHolder.Position = UDim2.new(1, -296, 0, 0)
+    notifyHolder.BackgroundTransparency = 1
+    notifyHolder.Parent = gui
+
+    local notifyLayout = Instance.new("UIListLayout")
+    notifyLayout.Padding = UDim.new(0, 10)
+    notifyLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    notifyLayout.Parent = notifyHolder
+
+    function Window:Notify(opts)
+        opts = opts or {}
+        local duration = opts.Duration or 3
+
+        local toast = Instance.new("CanvasGroup")
+        toast.Size = UDim2.new(1, 0, 0, 62)
+        toast.BackgroundColor3 = Theme.Sidebar
+        toast.BackgroundTransparency = 0.12
+        toast.BorderSizePixel = 0
+        toast.GroupTransparency = 1
+        toast.Parent = notifyHolder
+        corner(toast, 12)
+        stroke(toast, Color3.new(1, 1, 1), 1, 0.86)
+
+        local dot = Instance.new("Frame")
+        dot.Size = UDim2.new(0, 4, 1, -24)
+        dot.Position = UDim2.new(0, 10, 0, 12)
+        dot.BackgroundColor3 = Color3.new(1, 1, 1)
+        dot.BorderSizePixel = 0
+        dot.Parent = toast
+        corner(dot, "full")
+        accentGradient(dot, 90)
+
+        local toastTitle = newLabel(toast, opts.Title or "NeonUI", 14, Fonts.Bold, Theme.Text)
+        toastTitle.Position = UDim2.new(0, 26, 0, 10)
+        toastTitle.Size = UDim2.new(1, -38, 0, 18)
+
+        local toastText = newLabel(toast, opts.Content or "", 12, Fonts.Light, Theme.SubText)
+        toastText.Position = UDim2.new(0, 26, 0, 30)
+        toastText.Size = UDim2.new(1, -38, 0, 18)
+
+        local progress = Instance.new("Frame")
+        progress.Size = UDim2.new(1, 0, 0, 2)
+        progress.Position = UDim2.new(0, 0, 1, -2)
+        progress.BackgroundColor3 = Color3.new(1, 1, 1)
+        progress.BorderSizePixel = 0
+        progress.Parent = toast
+        accentGradient(progress, 0)
+
+        tween(toast, { GroupTransparency = 0 }, 0.25)
+        TweenService:Create(
+            progress,
+            TweenInfo.new(duration, Enum.EasingStyle.Linear),
+            { Size = UDim2.new(0, 0, 0, 2) }
+        ):Play()
+
+        task.delay(duration, function()
+            tween(toast, { GroupTransparency = 1 }, 0.25)
+            task.wait(0.3)
+            toast:Destroy()
+        end)
+    end
+
+    function Window:Toggle()
+        setVisible(not visible)
+    end
+
+    function Window:Destroy()
+        gui:Destroy()
+    end
+
+    function Window:SetTransparency(extra)
+        glassExtra = math.clamp(extra, 0, 0.6)
+        for i = #glassList, 1, -1 do
+            local g = glassList[i]
+            if g.obj.Parent then
+                g.obj.BackgroundTransparency = math.clamp(g.base + glassExtra, 0, 0.95)
+            else
+                table.remove(glassList, i)
+            end
+        end
+    end
+
+    -- Configurações salvas ------------------------------------------
+
+    local function canSave()
+        return writefile and readfile and isfile and makefolder and isfolder
+    end
+
+    local function ensureFolder()
+        if not isfolder(configFolder) then
+            makefolder(configFolder)
+        end
+    end
+
+    local function cleanName(name)
+        name = tostring(name or ""):gsub("[^%w_%-]", "")
+        if name == "" then
+            name = "padrao"
+        end
+        return name
+    end
+
+    function Window:SaveConfig(name)
+        if not canSave() then
+            return false, "Seu executor não suporta salvar arquivos."
+        end
+        name = cleanName(name)
+
+        local data = {}
+        for flag, item in pairs(Flags) do
+            data[flag] = item.Get()
+        end
+
+        local ok, err = pcall(function()
+            ensureFolder()
+            writefile(configFolder .. "/" .. name .. ".json", HttpService:JSONEncode(data))
+        end)
+        if ok then
+            return true, "Config salva: " .. name
+        end
+        return false, "Erro ao salvar: " .. tostring(err)
+    end
+
+    function Window:LoadConfig(name)
+        if not canSave() then
+            return false, "Seu executor não suporta ler arquivos."
+        end
+        name = cleanName(name)
+
+        local path = configFolder .. "/" .. name .. ".json"
+        if not isfile(path) then
+            return false, "Config não encontrada: " .. name
+        end
+
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(path))
+        end)
+        if not ok or type(data) ~= "table" then
+            return false, "Arquivo de config inválido."
+        end
+
+        for flag, value in pairs(data) do
+            local item = Flags[flag]
+            if item then
+                pcall(item.Set, value)
+            end
+        end
+        return true, "Config carregada: " .. name
+    end
+
+    function Window:DeleteConfig(name)
+        if not (canSave() and delfile) then
+            return false, "Seu executor não suporta apagar arquivos."
+        end
+        name = cleanName(name)
+
+        local path = configFolder .. "/" .. name .. ".json"
+        if not isfile(path) then
+            return false, "Config não encontrada: " .. name
+        end
+        pcall(delfile, path)
+        return true, "Config apagada: " .. name
+    end
+
+    function Window:ListConfigs()
+        local names = {}
+        if listfiles and isfolder and isfolder(configFolder) then
+            local ok, files = pcall(listfiles, configFolder)
+            if ok then
+                for _, file in ipairs(files) do
+                    local name = tostring(file):match("([^/\\]+)%.json$")
+                    if name then
+                        table.insert(names, name)
+                    end
+                end
+            end
+        end
+        return names
+    end
+
+    local function autoloadPath()
+        return configFolder .. "/autoload.txt"
+    end
+
+    local function autoloadName()
+        if canSave() and isfile(autoloadPath()) then
+            local ok, name = pcall(readfile, autoloadPath())
+            if ok and name and name ~= "" then
+                return cleanName(name)
+            end
+        end
+        return nil
+    end
+
+    -- Abas -----------------------------------------------------------
+
+    function Window:CreateTab(tabName)
+        local Tab = {}
+        local entry = { active = false }
+
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(1, 0, 0, 38)
+        button.BackgroundColor3 = Theme.Card
+        button.BackgroundTransparency = 1
+        button.Text = tabName
+        button.Font = Fonts.Medium
+        button.TextSize = 14
+        button.TextColor3 = Theme.SubText
+        button.TextXAlignment = Enum.TextXAlignment.Left
+        button.AutoButtonColor = false
+        button.Parent = tabHolder
+        corner(button, 10)
+
+        local buttonPadding = Instance.new("UIPadding")
+        buttonPadding.PaddingLeft = UDim.new(0, 16)
+        buttonPadding.Parent = button
+
+        local indicator = Instance.new("Frame")
+        indicator.Size = UDim2.new(0, 3, 0.5, 0)
+        indicator.Position = UDim2.new(0, -13, 0.25, 0)
+        indicator.BackgroundColor3 = Color3.new(1, 1, 1)
+        indicator.BorderSizePixel = 0
+        indicator.Visible = false
+        indicator.Parent = button
+        corner(indicator, "full")
+        accentGradient(indicator, 90)
+
+        local page = Instance.new("ScrollingFrame")
+        page.Size = UDim2.new(1, 0, 1, 0)
+        page.BackgroundTransparency = 1
+        page.BorderSizePixel = 0
+        page.ScrollBarThickness = 3
+        page.ScrollBarImageColor3 = Theme.Accent
+        page.CanvasSize = UDim2.new(0, 0, 0, 0)
+        page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        page.Visible = false
+        page.Parent = pagesArea
+
+        local pageLayout = Instance.new("UIListLayout")
+        pageLayout.Padding = UDim.new(0, 8)
+        pageLayout.Parent = page
+
+        local pagePadding = Instance.new("UIPadding")
+        pagePadding.PaddingTop = UDim.new(0, 4)
+        pagePadding.PaddingBottom = UDim.new(0, 16)
+        pagePadding.PaddingLeft = UDim.new(0, 22)
+        pagePadding.PaddingRight = UDim.new(0, 22)
+        pagePadding.Parent = page
+
+        function entry.activate()
+            entry.active = true
+            page.Visible = true
+            indicator.Visible = true
+            pageTitle.Text = tabName
+            tween(button, { BackgroundTransparency = 0.4, TextColor3 = Theme.Text }, 0.2)
+        end
+
+        function entry.deactivate()
+            entry.active = false
+            page.Visible = false
+            indicator.Visible = false
+            tween(button, { BackgroundTransparency = 1, TextColor3 = Theme.SubText }, 0.2)
+        end
+
+        table.insert(tabs, entry)
+
+        button.MouseButton1Click:Connect(function()
+            for _, t in ipairs(tabs) do
+                t.deactivate()
+            end
+            entry.activate()
+        end)
+
+        button.MouseEnter:Connect(function()
+            if not entry.active then
+                tween(button, { TextColor3 = Theme.Text }, 0.15)
+            end
+        end)
+        button.MouseLeave:Connect(function()
+            if not entry.active then
+                tween(button, { TextColor3 = Theme.SubText }, 0.15)
+            end
+        end)
+
+        if #tabs == 1 then
+            entry.activate()
+        end
+
+        -- Seção
+        function Tab:CreateSection(text)
+            local holderFrame = Instance.new("Frame")
+            holderFrame.Size = UDim2.new(1, 0, 0, 30)
+            holderFrame.BackgroundTransparency = 1
+            holderFrame.Parent = page
+
+            local bar = Instance.new("Frame")
+            bar.Size = UDim2.new(0, 3, 0, 14)
+            bar.Position = UDim2.new(0, 2, 0.5, -7)
+            bar.BackgroundColor3 = Color3.new(1, 1, 1)
+            bar.BorderSizePixel = 0
+            bar.Parent = holderFrame
+            corner(bar, "full")
+            accentGradient(bar, 90)
+
+            local l = newLabel(holderFrame, text, 13, Fonts.Bold, Theme.Text)
+            l.Position = UDim2.new(0, 14, 0, 0)
+            l.Size = UDim2.new(1, -14, 1, 0)
+        end
+
+        -- Parágrafo (texto longo)
+        function Tab:CreateParagraph(opts)
+            local content = opts.Content or ""
+            local textWidth = math.max(120, width - sideWidth - 44 - 32)
+            local textSize = TextService:GetTextSize(content, 12, Fonts.Light, Vector2.new(textWidth, 10000))
+
+            local f = element(page, 46 + textSize.Y)
+
+            local t = newLabel(f, opts.Title or "", 14, Fonts.Bold, Theme.Text)
+            t.Position = UDim2.new(0, 16, 0, 10)
+            t.Size = UDim2.new(1, -32, 0, 20)
+
+            local body = newLabel(f, content, 12, Fonts.Light, Theme.SubText)
+            body.Position = UDim2.new(0, 16, 0, 34)
+            body.Size = UDim2.new(1, -32, 0, textSize.Y)
+            body.TextWrapped = true
+            body.TextTruncate = Enum.TextTruncate.None
+            body.TextYAlignment = Enum.TextYAlignment.Top
+        end
+
+        -- Crédito (pessoa)
+        function Tab:CreateCredit(opts)
+            local f = element(page, 62)
+
+            local pic = Instance.new("ImageLabel")
+            pic.Size = UDim2.new(0, 38, 0, 38)
+            pic.Position = UDim2.new(0, 14, 0.5, -19)
+            pic.BackgroundColor3 = Color3.new(1, 1, 1)
+            pic.BorderSizePixel = 0
+            pic.Image = ""
+            pic.Parent = f
+            corner(pic, "full")
+            accentGradient(pic, 45)
+
+            if opts.UserId then
+                task.spawn(function()
+                    local ok, image = pcall(function()
+                        return Players:GetUserThumbnailAsync(
+                            opts.UserId,
+                            Enum.ThumbnailType.HeadShot,
+                            Enum.ThumbnailSize.Size100x100
+                        )
+                    end)
+                    if ok and image and pic.Parent then
+                        pic.Image = image
+                    end
+                end)
+            else
+                local initial = newLabel(pic, string.upper(string.sub(opts.Name or "?", 1, 1)), 16, Fonts.Bold, Color3.new(1, 1, 1))
+                initial.Size = UDim2.new(1, 0, 1, 0)
+                initial.TextXAlignment = Enum.TextXAlignment.Center
+            end
+
+            local name = newLabel(f, opts.Name or "", 14, Fonts.Bold, Theme.Text)
+            name.Position = UDim2.new(0, 64, 0, 12)
+            name.Size = UDim2.new(1, -76, 0, 20)
+
+            local role = newLabel(f, opts.Role or "", 12, Fonts.Light, Theme.SubText)
+            role.Position = UDim2.new(0, 64, 0, 33)
+            role.Size = UDim2.new(1, -76, 0, 18)
+        end
+
+        -- Caixa de texto
+        function Tab:CreateInput(opts)
+            local f = element(page, elementHeight(opts, 50, 64))
+            titleBlock(f, opts, 176)
+
+            local box = Instance.new("TextBox")
+            box.Size = UDim2.new(0, 130, 0, 28)
+            box.Position = UDim2.new(1, -144, 0.5, -14)
+            box.BackgroundColor3 = Theme.Background
+            box.BackgroundTransparency = 0.2
+            box.Text = opts.Default or ""
+            box.PlaceholderText = opts.Placeholder or ""
+            box.PlaceholderColor3 = Theme.SubText
+            box.TextColor3 = Theme.Text
+            box.Font = Fonts.Medium
+            box.TextSize = 13
+            box.ClearTextOnFocus = false
+            box.TextXAlignment = Enum.TextXAlignment.Left
+            box.Parent = f
+            corner(box, 8)
+            stroke(box, Color3.new(1, 1, 1), 1, 0.9)
+
+            local boxPadding = Instance.new("UIPadding")
+            boxPadding.PaddingLeft = UDim.new(0, 8)
+            boxPadding.PaddingRight = UDim.new(0, 8)
+            boxPadding.Parent = box
+
+            box.FocusLost:Connect(function()
+                if opts.Callback then
+                    task.spawn(opts.Callback, box.Text)
+                end
+            end)
+
+            local Input = {}
+
+            function Input:Get()
+                return box.Text
+            end
+
+            function Input:Set(text)
+                box.Text = tostring(text)
+            end
+
+            return Input
+        end
+
+        -- Tecla (keybind): clique e aperte qualquer tecla
+        function Tab:CreateKeybind(opts)
+            local key = opts.Default or Enum.KeyCode.RightShift
+            local f = element(page, elementHeight(opts, 50, 64))
+            titleBlock(f, opts, 170)
+
+            local keyButton = Instance.new("TextButton")
+            keyButton.Size = UDim2.new(0, 120, 0, 28)
+            keyButton.Position = UDim2.new(1, -134, 0.5, -14)
+            keyButton.BackgroundColor3 = Theme.Background
+            keyButton.BackgroundTransparency = 0.2
+            keyButton.Text = key.Name
+            keyButton.Font = Fonts.Bold
+            keyButton.TextSize = 12
+            keyButton.TextColor3 = Theme.Accent
+            keyButton.AutoButtonColor = false
+            keyButton.Parent = f
+            corner(keyButton, 8)
+            local keyStroke = stroke(keyButton, Theme.Accent, 1, 0.6)
+
+            local Keybind = {}
+            local waiting = false
+
+            function Keybind:Get()
+                return key
+            end
+
+            function Keybind:Set(value)
+                if typeof(value) == "string" then
+                    local ok, found = pcall(function()
+                        return Enum.KeyCode[value]
+                    end)
+                    if not ok or not found then return end
+                    value = found
+                end
+                if typeof(value) ~= "EnumItem" then return end
+
+                key = value
+                keyButton.Text = key.Name
+                if opts.Callback then
+                    task.spawn(opts.Callback, key)
+                end
+            end
+
+            keyButton.MouseButton1Click:Connect(function()
+                if waiting then return end
+                waiting = true
+                bindingActive = true
+                keyButton.Text = "Aperte uma tecla..."
+                tween(keyStroke, { Transparency = 0 }, 0.15)
+
+                local connection
+                connection = UserInputService.InputBegan:Connect(function(input)
+                    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                    if input.KeyCode == Enum.KeyCode.Unknown then return end
+
+                    connection:Disconnect()
+                    waiting = false
+                    bindingActive = false
+                    lastBind = os.clock()
+                    tween(keyStroke, { Transparency = 0.6 }, 0.15)
+
+                    if input.KeyCode == Enum.KeyCode.Escape then
+                        keyButton.Text = key.Name
+                        return
+                    end
+                    Keybind:Set(input.KeyCode)
+                end)
+            end)
+
+            if opts.Flag then
+                Flags[opts.Flag] = {
+                    Get = function() return key.Name end,
+                    Set = function(value) Keybind:Set(value) end,
+                }
+            end
+
+            return Keybind
+        end
+
+        -- Dropdown (lista de opções)
+        function Tab:CreateDropdown(opts)
+            local options = opts.Options or {}
+            local current = opts.Default or options[1]
+            local baseHeight = elementHeight(opts, 50, 64)
+            local itemHeight = 32
+
+            local f = element(page, baseHeight)
+            f.ClipsDescendants = true
+            titleBlock(f, opts, 190)
+
+            local selectButton = Instance.new("TextButton")
+            selectButton.Size = UDim2.new(0, 150, 0, 28)
+            selectButton.Position = UDim2.new(1, -164, 0, math.floor((baseHeight - 28) / 2))
+            selectButton.BackgroundColor3 = Theme.Background
+            selectButton.BackgroundTransparency = 0.2
+            selectButton.Font = Fonts.Medium
+            selectButton.TextSize = 12
+            selectButton.TextColor3 = Theme.Text
+            selectButton.AutoButtonColor = false
+            selectButton.Text = ""
+            selectButton.Parent = f
+            corner(selectButton, 8)
+            stroke(selectButton, Color3.new(1, 1, 1), 1, 0.9)
+
+            local list = Instance.new("Frame")
+            list.Position = UDim2.new(0, 12, 0, baseHeight)
+            list.Size = UDim2.new(1, -24, 0, 0)
+            list.BackgroundTransparency = 1
+            list.Parent = f
+
+            local listLayout = Instance.new("UIListLayout")
+            listLayout.Padding = UDim.new(0, 4)
+            listLayout.Parent = list
+
+            local optionButtons = {}
+            local Dropdown = {}
+            local open = false
+
+            local function listHeight()
+                return #options * (itemHeight + 4)
+            end
+
+            local function refresh()
+                local label = (current ~= nil) and tostring(current) or "Nenhuma"
+                selectButton.Text = label .. "  v"
+                for optionName, b in pairs(optionButtons) do
+                    b.TextColor3 = (optionName == current) and Theme.Accent or Theme.Text
+                end
+            end
+
+            local function setOpen(value)
+                open = value
+                local target = baseHeight
+                if value and #options > 0 then
+                    target = baseHeight + listHeight() + 10
+                end
+                tween(f, { Size = UDim2.new(1, 0, 0, target) }, 0.2)
+            end
+
+            local function build()
+                for _, b in pairs(optionButtons) do
+                    b:Destroy()
+                end
+                optionButtons = {}
+                list.Size = UDim2.new(1, -24, 0, listHeight())
+
+                for _, optionName in ipairs(options) do
+                    local b = Instance.new("TextButton")
+                    b.Size = UDim2.new(1, 0, 0, itemHeight)
+                    b.BackgroundColor3 = Theme.Background
+                    b.BackgroundTransparency = 0.35
+                    b.Text = tostring(optionName)
+                    b.Font = Fonts.Medium
+                    b.TextSize = 13
+                    b.TextColor3 = Theme.Text
+                    b.AutoButtonColor = false
+                    b.Parent = list
+                    corner(b, 8)
+                    optionButtons[optionName] = b
+
+                    b.MouseEnter:Connect(function()
+                        tween(b, { BackgroundTransparency = 0.1 }, 0.12)
+                    end)
+                    b.MouseLeave:Connect(function()
+                        tween(b, { BackgroundTransparency = 0.35 }, 0.12)
+                    end)
+                    b.MouseButton1Click:Connect(function()
+                        Dropdown:Set(optionName)
+                        setOpen(false)
+                    end)
+                end
+            end
+
+            function Dropdown:Get()
+                return current
+            end
+
+            function Dropdown:Set(value)
+                if not table.find(options, value) then return end
+                current = value
+                refresh()
+                if opts.Callback then
+                    task.spawn(opts.Callback, current)
+                end
+            end
+
+            -- Troca a lista de opções (ex.: depois de salvar um item novo)
+            function Dropdown:SetOptions(newOptions)
+                options = newOptions or {}
+                if current == nil or not table.find(options, current) then
+                    current = options[1]
+                end
+                build()
+                refresh()
+                if open then
+                    setOpen(true)
+                end
+            end
+
+            selectButton.MouseButton1Click:Connect(function()
+                setOpen(not open)
+            end)
+
+            if opts.Flag then
+                Flags[opts.Flag] = {
+                    Get = function() return current end,
+                    Set = function(value) Dropdown:Set(value) end,
+                }
+            end
+
+            build()
+            refresh()
+            return Dropdown
+        end
+
+        -- Botão
+        function Tab:CreateButton(opts)
+            local f = element(page, elementHeight(opts, 50, 64))
+            titleBlock(f, opts, 56)
+
+            local arrow = newLabel(f, ">", 16, Fonts.Bold, Theme.SubText)
+            arrow.Size = UDim2.new(0, 24, 1, 0)
+            arrow.Position = UDim2.new(1, -36, 0, 0)
+            arrow.TextXAlignment = Enum.TextXAlignment.Center
+
+            local b = Instance.new("TextButton")
+            b.Size = UDim2.new(1, 0, 1, 0)
+            b.BackgroundTransparency = 1
+            b.Text = ""
+            b.AutoButtonColor = false
+            b.Parent = f
+
+            b.MouseEnter:Connect(function()
+                tween(arrow, { TextColor3 = Theme.Accent }, 0.15)
+            end)
+            b.MouseLeave:Connect(function()
+                tween(arrow, { TextColor3 = Theme.SubText }, 0.15)
+            end)
+            b.MouseButton1Click:Connect(function()
+                tween(f, { BackgroundColor3 = Theme.Accent }, 0.08)
+                task.delay(0.1, function()
+                    tween(f, { BackgroundColor3 = Theme.Card }, 0.3)
+                end)
+                if opts.Callback then
+                    task.spawn(opts.Callback)
+                end
+            end)
+        end
+
+        -- Toggle
+        function Tab:CreateToggle(opts)
+            local state = opts.Default or false
+            local f = element(page, elementHeight(opts, 50, 64))
+            titleBlock(f, opts, 84)
+
+            local track = Instance.new("Frame")
+            track.Size = UDim2.new(0, 44, 0, 24)
+            track.Position = UDim2.new(1, -58, 0.5, -12)
+            track.BackgroundColor3 = Theme.Off
+            track.BorderSizePixel = 0
+            track.Parent = f
+            corner(track, "full")
+
+            local trackGradient = accentGradient(track, 0)
+            trackGradient.Enabled = false
+
+            local knob = Instance.new("Frame")
+            knob.Size = UDim2.new(0, 18, 0, 18)
+            knob.Position = UDim2.new(0, 3, 0.5, -9)
+            knob.BackgroundColor3 = Color3.new(1, 1, 1)
+            knob.BorderSizePixel = 0
+            knob.Parent = track
+            corner(knob, "full")
+
+            local click = Instance.new("TextButton")
+            click.Size = UDim2.new(1, 0, 1, 0)
+            click.BackgroundTransparency = 1
+            click.Text = ""
+            click.Parent = f
+
+            local function render()
+                if state then
+                    trackGradient.Enabled = true
+                    tween(track, { BackgroundColor3 = Color3.new(1, 1, 1) }, 0.2)
+                    tween(knob, { Position = UDim2.new(1, -21, 0.5, -9) }, 0.2)
+                else
+                    trackGradient.Enabled = false
+                    tween(track, { BackgroundColor3 = Theme.Off }, 0.2)
+                    tween(knob, { Position = UDim2.new(0, 3, 0.5, -9) }, 0.2)
+                end
+            end
+
+            local Toggle = {}
+
+            function Toggle:Set(value)
+                state = value and true or false
+                render()
+                if opts.Callback then
+                    task.spawn(opts.Callback, state)
+                end
+            end
+
+            click.MouseButton1Click:Connect(function()
+                Toggle:Set(not state)
+            end)
+
+            if opts.Flag then
+                Flags[opts.Flag] = {
+                    Get = function() return state end,
+                    Set = function(value) Toggle:Set(value) end,
+                }
+            end
+
+            render()
+            return Toggle
+        end
+
+        -- Slider
+        function Tab:CreateSlider(opts)
+            local min = opts.Range[1]
+            local max = opts.Range[2]
+            local inc = opts.Increment or 1
+            local value = math.clamp(opts.Default or min, min, max)
+
+            local f = element(page, 68)
+
+            local name = newLabel(f, opts.Name, 14, Fonts.Medium, Theme.Text)
+            name.Position = UDim2.new(0, 16, 0, 10)
+            name.Size = UDim2.new(1, -100, 0, 22)
+
+            local box = Instance.new("Frame")
+            box.Size = UDim2.new(0, 54, 0, 24)
+            box.Position = UDim2.new(1, -70, 0, 9)
+            box.BackgroundColor3 = Theme.Background
+            box.BackgroundTransparency = 0.25
+            box.BorderSizePixel = 0
+            box.Parent = f
+            corner(box, 8)
+            stroke(box, Color3.new(1, 1, 1), 1, 0.9)
+
+            local valueLabel = newLabel(box, tostring(value), 13, Fonts.Bold, Theme.Text)
+            valueLabel.Size = UDim2.new(1, 0, 1, 0)
+            valueLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+            local track = Instance.new("Frame")
+            track.Position = UDim2.new(0, 16, 0, 50)
+            track.Size = UDim2.new(1, -32, 0, 6)
+            track.BackgroundColor3 = Theme.Background
+            track.BackgroundTransparency = 0.2
+            track.BorderSizePixel = 0
+            track.Parent = f
+            corner(track, "full")
+
+            local fill = Instance.new("Frame")
+            fill.Size = UDim2.new(0, 0, 1, 0)
+            fill.BackgroundColor3 = Color3.new(1, 1, 1)
+            fill.BorderSizePixel = 0
+            fill.Parent = track
+            corner(fill, "full")
+            accentGradient(fill, 0)
+
+            local knob = Instance.new("Frame")
+            knob.Size = UDim2.new(0, 16, 0, 16)
+            knob.AnchorPoint = Vector2.new(0.5, 0.5)
+            knob.Position = UDim2.new(0, 0, 0.5, 0)
+            knob.BackgroundColor3 = Color3.new(1, 1, 1)
+            knob.BorderSizePixel = 0
+            knob.Parent = track
+            corner(knob, "full")
+            stroke(knob, Theme.Accent, 2)
+
+            local hit = Instance.new("TextButton")
+            hit.Position = UDim2.new(0, 10, 0, 38)
+            hit.Size = UDim2.new(1, -20, 0, 30)
+            hit.BackgroundTransparency = 1
+            hit.Text = ""
+            hit.Parent = f
+
+            local Slider = {}
+
+            local function render()
+                local ratio = (value - min) / (max - min)
+                fill.Size = UDim2.new(ratio, 0, 1, 0)
+                knob.Position = UDim2.new(ratio, 0, 0.5, 0)
+                valueLabel.Text = tostring(value)
+            end
+
+            function Slider:Set(newValue)
+                newValue = tonumber(newValue)
+                if not newValue then return end
+
+                newValue = math.clamp(newValue, min, max)
+                newValue = math.floor(newValue / inc + 0.5) * inc
+                newValue = tonumber(string.format("%.3f", newValue))
+                newValue = math.clamp(newValue, min, max)
+
+                if newValue == value then return end
+                value = newValue
+                render()
+                if opts.Callback then
+                    task.spawn(opts.Callback, value)
+                end
+            end
+
+            local function setFromX(x)
+                local ratio = math.clamp(
+                    (x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1
+                )
+                Slider:Set(min + (max - min) * ratio)
+            end
+
+            local sliding = false
+
+            hit.InputBegan:Connect(function(input)
+                if isPress(input) then
+                    sliding = true
+                    page.ScrollingEnabled = false
+                    tween(knob, { Size = UDim2.new(0, 22, 0, 22) }, 0.12)
+                    setFromX(input.Position.X)
+                end
+            end)
+
+            UserInputService.InputChanged:Connect(function(input)
+                if sliding and isMove(input) then
+                    setFromX(input.Position.X)
+                end
+            end)
+
+            UserInputService.InputEnded:Connect(function(input)
+                if sliding and isPress(input) then
+                    sliding = false
+                    page.ScrollingEnabled = true
+                    tween(knob, { Size = UDim2.new(0, 16, 0, 16) }, 0.12)
+                end
+            end)
+
+            if opts.Flag then
+                Flags[opts.Flag] = {
+                    Get = function() return value end,
+                    Set = function(newValue) Slider:Set(newValue) end,
+                }
+            end
+
+            render()
+            return Slider
+        end
+
+        return Tab
+    end
+
+    -- Aba de créditos --------------------------------------------------
+
+    function Window:CreateCreditsTab(opts)
+        opts = opts or {}
+        local Tab = Window:CreateTab(opts.TabName or "Créditos")
+
+        Tab:CreateSection(opts.Section or "Equipe")
+        for _, credit in ipairs(opts.Credits or {}) do
+            Tab:CreateCredit(credit)
+        end
+
+        if opts.Links and #opts.Links > 0 then
+            Tab:CreateSection("Links")
+            for _, link in ipairs(opts.Links) do
+                Tab:CreateButton({
+                    Name = link.Name,
+                    Description = link.Description or "Toque para copiar o link",
+                    Callback = function()
+                        if setclipboard then
+                            setclipboard(link.Url)
+                            Window:Notify({ Title = "Link copiado", Content = link.Name, Duration = 2 })
+                        else
+                            Window:Notify({ Title = link.Name, Content = link.Url, Duration = 5 })
+                        end
+                    end,
+                })
+            end
+        end
+
+        if opts.About then
+            Tab:CreateSection("Sobre")
+            Tab:CreateParagraph({ Title = opts.About.Title, Content = opts.About.Content })
+        end
+
+        return Tab
+    end
+
+    -- Aba de configurações ----------------------------------------------
+
+    function Window:CreateSettingsTab()
+        local Tab = Window:CreateTab("Configurações")
+
+        Tab:CreateSection("Configuração")
+
+        local nameInput = Tab:CreateInput({
+            Name = "Nome da config",
+            Description = "Só letras e números",
+            Default = autoloadName() or "padrao",
+            Placeholder = "padrao",
+        })
+
+        local function currentName()
+            return cleanName(nameInput:Get())
+        end
+
+        Tab:CreateButton({
+            Name = "Salvar config",
+            Description = "Salva todas as opções do hub",
+            Callback = function()
+                local _, message = Window:SaveConfig(currentName())
+                Window:Notify({ Title = "Configurações", Content = message, Duration = 3 })
+            end,
+        })
+
+        Tab:CreateButton({
+            Name = "Carregar config",
+            Description = "Aplica a config com esse nome",
+            Callback = function()
+                local _, message = Window:LoadConfig(currentName())
+                Window:Notify({ Title = "Configurações", Content = message, Duration = 3 })
+            end,
+        })
+
+        Tab:CreateButton({
+            Name = "Apagar config",
+            Description = "Remove a config com esse nome",
+            Callback = function()
+                local _, message = Window:DeleteConfig(currentName())
+                Window:Notify({ Title = "Configurações", Content = message, Duration = 3 })
+            end,
+        })
+
+        Tab:CreateButton({
+            Name = "Listar configs",
+            Description = "Mostra as configs salvas",
+            Callback = function()
+                local names = Window:ListConfigs()
+                local text = (#names > 0) and table.concat(names, ", ") or "Nenhuma config salva."
+                Window:Notify({ Title = "Configs salvas", Content = text, Duration = 4 })
+            end,
+        })
+
+        Tab:CreateToggle({
+            Name = "Carregar automaticamente",
+            Description = "Carrega essa config ao abrir o hub",
+            Default = autoloadName() ~= nil,
+            Callback = function(value)
+                if not canSave() then
+                    Window:Notify({ Title = "Configurações", Content = "Seu executor não suporta salvar arquivos.", Duration = 3 })
+                    return
+                end
+                pcall(function()
+                    if value then
+                        ensureFolder()
+                        writefile(autoloadPath(), currentName())
+                    elseif isfile(autoloadPath()) and delfile then
+                        delfile(autoloadPath())
+                    end
+                end)
+            end,
+        })
+
+        Tab:CreateSection("Interface")
+
+        Tab:CreateKeybind({
+            Name = "Tecla para abrir/fechar",
+            Description = "Clique e aperte uma tecla (evite W, A, S, D)",
+            Default = toggleKey,
+            Flag = "NeonUI_ToggleKey",
+            Callback = function(key)
+                toggleKey = key
+                Window:Notify({
+                    Title = "Tecla alterada",
+                    Content = "Abrir/fechar: " .. key.Name,
+                    Duration = 2,
+                })
+            end,
+        })
+
+        Tab:CreateSlider({
+            Name = "Transparência da janela",
+            Range = {0, 60},
+            Increment = 5,
+            Default = 0,
+            Flag = "NeonUI_Transparency",
+            Callback = function(value)
+                Window:SetTransparency(value / 100)
+            end,
+        })
+
+        Tab:CreateToggle({
+            Name = "Mostrar botão Abrir/Fechar",
+            Description = "No celular, deixe ligado para reabrir o hub",
+            Default = true,
+            Flag = "NeonUI_ShowToggleButton",
+            Callback = function(value)
+                if not loading then
+                    toggleButton.Visible = value
+                end
+            end,
+        })
+
+        Tab:CreateButton({
+            Name = "Descarregar hub",
+            Description = "Remove a interface da tela",
+            Callback = function()
+                gui:Destroy()
+            end,
+        })
+
+        return Tab
+    end
+
+    -- Tela de carregamento ----------------------------------------------
+
+    local function afterLoading()
+        loading = false
+        toggleButton.Visible = true
+        setVisible(true)
+
+        task.spawn(function()
+            task.wait(0.4)
+            local name = autoloadName()
+            if name then
+                local ok, message = Window:LoadConfig(name)
+                Window:Notify({
+                    Title = "Configurações",
+                    Content = ok and ("Carregada automaticamente: " .. name) or message,
+                    Duration = 3,
+                })
+            end
+        end)
+    end
+
+    if loadingEnabled then
+        local loadTitle    = config.LoadingTitle or title
+        local loadSubtitle = config.LoadingSubtitle or subtitle or ""
+        local loadTime     = config.LoadingTime or 2.4
+
+        local card = Instance.new("CanvasGroup")
+        card.Size = UDim2.new(0, 340, 0, 210)
+        card.Position = UDim2.new(0.5, 0, 0.5, 0)
+        card.AnchorPoint = Vector2.new(0.5, 0.5)
+        card.BackgroundColor3 = Theme.Sidebar
+        card.BackgroundTransparency = 0.1
+        card.BorderSizePixel = 0
+        card.GroupTransparency = 1
+        card.Parent = gui
+        corner(card, 18)
+        accentGradient(stroke(card, Color3.new(1, 1, 1), 1.5, 0.1), 45)
+
+        local cardLogo = Instance.new("Frame")
+        cardLogo.Size = UDim2.new(0, 56, 0, 56)
+        cardLogo.Position = UDim2.new(0.5, -28, 0, 24)
+        cardLogo.BackgroundColor3 = Color3.new(1, 1, 1)
+        cardLogo.BorderSizePixel = 0
+        cardLogo.Parent = card
+        corner(cardLogo, 16)
+        accentGradient(cardLogo, 45)
+
+        local cardLogoText = newLabel(cardLogo, string.sub(title, 1, 1), 26, Fonts.Bold, Color3.new(1, 1, 1))
+        cardLogoText.Size = UDim2.new(1, 0, 1, 0)
+        cardLogoText.TextXAlignment = Enum.TextXAlignment.Center
+
+        local pulse = Instance.new("UIScale")
+        pulse.Parent = cardLogo
+        TweenService:Create(
+            pulse,
+            TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+            { Scale = 1.12 }
+        ):Play()
+
+        local cardTitle = newLabel(card, loadTitle, 18, Fonts.Bold, Theme.Text)
+        cardTitle.Position = UDim2.new(0, 20, 0, 94)
+        cardTitle.Size = UDim2.new(1, -40, 0, 24)
+        cardTitle.TextXAlignment = Enum.TextXAlignment.Center
+
+        local cardSub = newLabel(card, loadSubtitle, 12, Fonts.Light, Theme.SubText)
+        cardSub.Position = UDim2.new(0, 20, 0, 118)
+        cardSub.Size = UDim2.new(1, -40, 0, 16)
+        cardSub.TextXAlignment = Enum.TextXAlignment.Center
+
+        local barBack = Instance.new("Frame")
+        barBack.Position = UDim2.new(0, 30, 0, 156)
+        barBack.Size = UDim2.new(1, -60, 0, 6)
+        barBack.BackgroundColor3 = Theme.Off
+        barBack.BorderSizePixel = 0
+        barBack.Parent = card
+        corner(barBack, "full")
+
+        local barFill = Instance.new("Frame")
+        barFill.Size = UDim2.new(0, 0, 1, 0)
+        barFill.BackgroundColor3 = Color3.new(1, 1, 1)
+        barFill.BorderSizePixel = 0
+        barFill.Parent = barBack
+        corner(barFill, "full")
+        accentGradient(barFill, 0)
+
+        local status = newLabel(card, "Iniciando...", 11, Fonts.Light, Theme.SubText)
+        status.Position = UDim2.new(0, 30, 0, 172)
+        status.Size = UDim2.new(0.6, 0, 0, 16)
+
+        local percent = newLabel(card, "0%", 11, Fonts.Bold, Theme.Text)
+        percent.Position = UDim2.new(1, -80, 0, 172)
+        percent.Size = UDim2.new(0, 50, 0, 16)
+        percent.TextXAlignment = Enum.TextXAlignment.Right
+
+        tween(card, { GroupTransparency = 0 }, 0.3)
+
+        task.spawn(function()
+            local steps = {
+                "Iniciando...",
+                "Carregando módulos...",
+                "Preparando interface...",
+                "Pronto!",
+            }
+            local stepTime = loadTime / #steps
+
+            for i, text in ipairs(steps) do
+                status.Text = text
+                percent.Text = tostring(math.floor(i / #steps * 100)) .. "%"
+                tween(barFill, { Size = UDim2.new(i / #steps, 0, 1, 0) }, stepTime)
+                task.wait(stepTime)
+            end
+
+            task.wait(0.2)
+            tween(card, { GroupTransparency = 1 }, 0.3)
+            task.wait(0.35)
+            card:Destroy()
+
+            if gui.Parent then
+                afterLoading()
+            end
+        end)
+    else
+        task.spawn(function()
+            task.wait(0.3)
+            if gui.Parent then
+                afterLoading()
+            end
+        end)
+    end
+
+    return Window
+end
+
+return NeonUI
+end)()
+
+local function runHub()
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
 local UserInputService  = game:GetService("UserInputService")
@@ -494,184 +2149,1591 @@ task.spawn(function()
     end
 end)
 
-local Window = Nexora:CreateWindow({
-    Name = "Nexora Hub",
+-- Previsão de queda da bola
+local predictEnabled = false
+local predictMarker  = nil
+
+local function hideMarker()
+    if predictMarker then
+        predictMarker:Destroy()
+        predictMarker = nil
+    end
+end
+
+local function getMarker()
+    if predictMarker and predictMarker.Parent then
+        return predictMarker
+    end
+
+    local marker = Instance.new("Part")
+    marker.Name         = "NexoraLanding"
+    marker.Shape        = Enum.PartType.Cylinder
+    marker.Size         = Vector3.new(0.2, 4, 4)
+    marker.Anchored     = true
+    marker.CanCollide   = false
+    marker.CanTouch     = false
+    marker.CanQuery     = false
+    marker.CastShadow   = false
+    marker.Material     = Enum.Material.Neon
+    marker.Color        = Color3.fromRGB(255, 80, 80)
+    marker.Transparency = 0.3
+    marker.Parent       = Workspace
+
+    predictMarker = marker
+    return marker
+end
+
+RunService.Heartbeat:Connect(function()
+    if not predictEnabled then return end
+
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local ball = GetClosestBall(root)
+    if not ball or not ball.Parent then
+        hideMarker()
+        return
+    end
+
+    local velocity = ball.AssemblyLinearVelocity
+    if velocity.Magnitude < 2 then
+        hideMarker()
+        return
+    end
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = { character, ball, predictMarker }
+
+    local hit = Workspace:Raycast(ball.Position, Vector3.new(0, -500, 0), params)
+    local groundY = hit and hit.Position.Y or (root.Position.Y - 3)
+
+    local radius  = math.max(ball.Size.X, ball.Size.Y, ball.Size.Z) / 2
+    local height  = math.max(0, ball.Position.Y - groundY - radius)
+    local gravity = Workspace.Gravity
+
+    local discriminant = velocity.Y * velocity.Y + 2 * gravity * height
+    if discriminant < 0 then
+        hideMarker()
+        return
+    end
+
+    local timeToLand = (velocity.Y + math.sqrt(discriminant)) / gravity
+    local landing = Vector3.new(
+        ball.Position.X + velocity.X * timeToLand,
+        groundY + 0.1,
+        ball.Position.Z + velocity.Z * timeToLand
+    )
+
+    local marker = getMarker()
+    marker.CFrame = CFrame.new(landing) * CFrame.Angles(0, 0, math.rad(90))
+end)
+
+-- Ajuste de pulo
+local customJump = nil
+
+local function applyJump()
+    if not customJump then return end
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.UseJumpPower = true
+        humanoid.JumpPower = customJump
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    newCharacter:WaitForChild("Humanoid")
+    applyJump()
+end)
+
+-- Velocidade
+local walkSpeed = 16
+
+RunService.Heartbeat:Connect(function()
+    if walkSpeed == 16 then return end
+
+    local character = LocalPlayer.Character
+    if not character then return end
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not root or not humanoid then return end
+
+    local direction = humanoid.MoveDirection
+    if direction.Magnitude > 0.1 then
+        local velocity = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.new(
+            direction.X * walkSpeed,
+            velocity.Y,
+            direction.Z * walkSpeed
+        )
+    end
+end)
+
+-- Skybox
+local Lighting = game:GetService("Lighting")
+
+local lightingProps = { "ClockTime", "Brightness", "Ambient", "OutdoorAmbient", "FogColor", "FogEnd" }
+local savedLighting = nil
+local savedSkies    = {}
+local customSky     = nil
+
+local rainFolder     = nil
+local rainConnection = nil
+local rainSound      = nil
+
+local function stopRain()
+    if rainConnection then
+        rainConnection:Disconnect()
+        rainConnection = nil
+    end
+    if rainFolder then
+        rainFolder:Destroy()
+        rainFolder = nil
+    end
+    if rainSound then
+        rainSound:Destroy()
+        rainSound = nil
+    end
+end
+
+local function startRain()
+    stopRain()
+
+    rainFolder = Instance.new("Folder")
+    rainFolder.Name = "NexoraRain"
+    rainFolder.Parent = Workspace
+
+    local half   = 100
+    local height = 50
+    local fall   = 120
+    local drops  = {}
+
+    for i = 1, 50 do
+        local part = Instance.new("Part")
+        part.Size         = Vector3.new(0.05, 3, 0.05)
+        part.Anchored     = true
+        part.CanCollide   = false
+        part.CanQuery     = false
+        part.CanTouch     = false
+        part.CastShadow   = false
+        part.Material     = Enum.Material.SmoothPlastic
+        part.Color        = Color3.fromRGB(160, 200, 255)
+        part.Transparency = 0.5
+        part.Parent       = rainFolder
+
+        drops[i] = {
+            part = part,
+            x = math.random(-half, half),
+            y = math.random(0, height),
+            z = math.random(-half, half),
+        }
+    end
+
+    rainConnection = RunService.RenderStepped:Connect(function(dt)
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local center = root and root.Position or Vector3.zero
+
+        for _, drop in ipairs(drops) do
+            drop.y = drop.y - fall * dt
+            if drop.y < center.Y - 10 then
+                drop.y = center.Y + height
+                drop.x = math.random(-half, half)
+                drop.z = math.random(-half, half)
+            end
+            drop.part.Position = Vector3.new(center.X + drop.x, drop.y, center.Z + drop.z)
+        end
+    end)
+
+    rainSound = Instance.new("Sound")
+    rainSound.Name    = "NexoraRainAmbience"
+    rainSound.SoundId = "rbxassetid://365362615"
+    rainSound.Looped  = true
+    rainSound.Volume  = 0.4
+    rainSound.Parent  = Workspace
+    rainSound:Play()
+end
+
+local nightSky = {
+    Bk = "rbxassetid://4498828382",
+    Dn = "rbxassetid://4498828812",
+    Ft = "rbxassetid://4498829917",
+    Lf = "rbxassetid://4498830911",
+    Rt = "rbxassetid://4498830417",
+    Up = "rbxassetid://4498831746",
+}
+
+local skyPresets = {
+    ["Sol"] = {
+        Lighting = {
+            ClockTime = 7,
+            Brightness = 2,
+            OutdoorAmbient = Color3.fromRGB(200, 200, 255),
+            Ambient = Color3.fromRGB(255, 210, 160),
+            FogColor = Color3.fromRGB(255, 170, 100),
+            FogEnd = 100000,
+        },
+        Sky = {
+            Bk = "rbxassetid://541743453",
+            Dn = "rbxassetid://541743443",
+            Ft = "rbxassetid://541743446",
+            Lf = "rbxassetid://541743436",
+            Rt = "rbxassetid://541743435",
+            Up = "rbxassetid://541743441",
+        },
+    },
+    ["Lua"] = {
+        Lighting = {
+            ClockTime = 21,
+            Brightness = 1,
+            OutdoorAmbient = Color3.fromRGB(128, 128, 128),
+            Ambient = Color3.fromRGB(0, 0, 0),
+            FogColor = Color3.fromRGB(150, 150, 150),
+            FogEnd = 100000,
+        },
+        Sky = nightSky,
+    },
+    ["Chuva"] = {
+        Lighting = {
+            ClockTime = 21,
+            Brightness = 1,
+            OutdoorAmbient = Color3.fromRGB(100, 100, 120),
+            Ambient = Color3.fromRGB(50, 50, 60),
+            FogColor = Color3.fromRGB(100, 100, 120),
+            FogEnd = 100000,
+        },
+        Sky = nightSky,
+        Rain = true,
+    },
+}
+
+local function faceSet(bk, dn, ft, lf, rt, up)
+    return {
+        Bk = "rbxassetid://" .. bk,
+        Dn = "rbxassetid://" .. dn,
+        Ft = "rbxassetid://" .. ft,
+        Lf = "rbxassetid://" .. lf,
+        Rt = "rbxassetid://" .. rt,
+        Up = "rbxassetid://" .. up,
+    }
+end
+
+skyPresets["Dark Sky"] = {
+    Lighting = {}, Celestial = false,
+    Sky = faceSet(570555736, 570555964, 570555800, 570555840, 570555882, 570555929),
+}
+skyPresets["Art Mountain"] = {
+    Lighting = {}, Celestial = false,
+    Sky = faceSet(2128458653, 2128462480, 2128458653, 2128462027, 2128462027, 2128462236),
+}
+skyPresets["Vaporwave"] = {
+    Lighting = {}, Celestial = false,
+    Sky = faceSet(1417494030, 1417494146, 1417494253, 1417494402, 1417494499, 1417494643),
+}
+skyPresets["Nebula"] = {
+    Lighting = {}, Celestial = false,
+    Sky = faceSet(159454299, 159454296, 159454293, 159454286, 159454300, 159454288),
+}
+skyPresets["Twilight"] = {
+    Lighting = {}, Celestial = false,
+    Sky = faceSet(264908339, 264907909, 264909420, 264909758, 264908886, 264907379),
+}
+skyPresets["Lake Sky"] = {
+    Lighting = {}, Celestial = true, Sun = "rbxassetid://5392574622",
+    Sky = faceSet(6823523318, 6823525702, 6823482923, 6823530023, 6823531746, 6823528533),
+}
+skyPresets["Alien Red"] = {
+    Lighting = {}, Celestial = false,
+    Sky = faceSet(7123385217, 7123387679, 7123390433, 7123394786, 7123402505, 7123412196),
+}
+skyPresets["Black Mesa"] = {
+    Lighting = {}, Celestial = false,
+    Sky = faceSet(9569742122, 9569613307, 9569611418, 9569608166, 9569601267, 9569598752),
+}
+skyPresets["Clouds"] = {
+    Lighting = {}, Celestial = false,
+    Sky = faceSet(570557514, 570557775, 570557559, 570557620, 570557672, 570557727),
+}
+
+local function saveOriginalSky()
+    if savedLighting then return end
+    savedLighting = {}
+    for _, prop in ipairs(lightingProps) do
+        savedLighting[prop] = Lighting[prop]
+    end
+end
+
+local function restoreLighting()
+    if savedLighting then
+        for prop, value in pairs(savedLighting) do
+            Lighting[prop] = value
+        end
+    end
+end
+
+local function removeCustomSky()
+    stopRain()
+    if customSky then
+        customSky:Destroy()
+        customSky = nil
+    end
+end
+
+local function applySky(name)
+    if name == "Padrão" then
+        removeCustomSky()
+        for _, sky in ipairs(savedSkies) do
+            sky.Parent = Lighting
+        end
+        savedSkies = {}
+        restoreLighting()
+        return
+    end
+
+    local preset = skyPresets[name]
+    if not preset then return end
+
+    saveOriginalSky()
+    removeCustomSky()
+
+    for _, child in ipairs(Lighting:GetChildren()) do
+        if child:IsA("Sky") then
+            table.insert(savedSkies, child)
+            child.Parent = nil
+        end
+    end
+
+    restoreLighting()
+    for prop, value in pairs(preset.Lighting) do
+        Lighting[prop] = value
+    end
+
+    local sky = Instance.new("Sky")
+    sky.Name = "NexoraSky"
+    sky.SkyboxBk = preset.Sky.Bk
+    sky.SkyboxDn = preset.Sky.Dn
+    sky.SkyboxFt = preset.Sky.Ft
+    sky.SkyboxLf = preset.Sky.Lf
+    sky.SkyboxRt = preset.Sky.Rt
+    sky.SkyboxUp = preset.Sky.Up
+    sky.CelestialBodiesShown = preset.Celestial ~= false
+    if preset.Sun then
+        sky.SunTextureId = preset.Sun
+    end
+    sky.Parent = Lighting
+    customSky = sky
+
+    if preset.Rain then
+        startRain()
+    end
+end
+
+-- Skyboxes personalizadas (IDs das imagens)
+local customSkyFile = "NexoraHub/skyboxes.json"
+local customSkies   = {}
+local customSkyDropdown = nil
+local skyNameInput = nil
+local skyIdsInput  = nil
+
+local function fileSupport()
+    return writefile and readfile and isfile and makefolder and isfolder
+end
+
+local function saveCustomSkies()
+    if not fileSupport() then return false end
+    local ok = pcall(function()
+        if not isfolder("NexoraHub") then
+            makefolder("NexoraHub")
+        end
+        writefile(customSkyFile, HttpService:JSONEncode(customSkies))
+    end)
+    return ok
+end
+
+local function loadCustomSkies()
+    if not fileSupport() or not isfile(customSkyFile) then return end
+
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(readfile(customSkyFile))
+    end)
+    if not ok or type(data) ~= "table" then return end
+
+    for name, faces in pairs(data) do
+        if type(name) == "string" and type(faces) == "table" and #faces == 6 then
+            customSkies[name] = faces
+        end
+    end
+end
+
+local function sortedSkyNames()
+    local names = {}
+    for name in pairs(customSkies) do
+        table.insert(names, name)
+    end
+    table.sort(names)
+    return names
+end
+
+-- Lê os IDs digitados (aceita rbxassetid://123, links ou só números)
+local function parseSkyIds(text)
+    local ids = {}
+    for token in tostring(text or ""):gmatch("%d+") do
+        if #token >= 5 then
+            table.insert(ids, token)
+        end
+    end
+
+    if #ids == 1 then
+        return { ids[1], ids[1], ids[1], ids[1], ids[1], ids[1] }
+    end
+    if #ids == 6 then
+        return ids
+    end
+    return nil
+end
+
+local function applyCustomSky(faces)
+    saveOriginalSky()
+    removeCustomSky()
+    restoreLighting()
+
+    for _, child in ipairs(Lighting:GetChildren()) do
+        if child:IsA("Sky") then
+            table.insert(savedSkies, child)
+            child.Parent = nil
+        end
+    end
+
+    local sky = Instance.new("Sky")
+    sky.Name = "NexoraSky"
+    sky.SkyboxBk = "rbxassetid://" .. faces[1]
+    sky.SkyboxDn = "rbxassetid://" .. faces[2]
+    sky.SkyboxFt = "rbxassetid://" .. faces[3]
+    sky.SkyboxLf = "rbxassetid://" .. faces[4]
+    sky.SkyboxRt = "rbxassetid://" .. faces[5]
+    sky.SkyboxUp = "rbxassetid://" .. faces[6]
+    sky.CelestialBodiesShown = false
+    sky.Parent = Lighting
+    customSky = sky
+end
+
+loadCustomSkies()
+
+-- Skins da bola
+local ballSkins = {
+    ["Champions Laranja"] = {
+        Texture = "http://www.roblox.com/asset/?id=6631296730",
+        Mesh    = "rbxassetid://4545270159",
+    },
+    ["Champions Azul"] = {
+        Texture = "rbxassetid://8108082224",
+        Mesh    = "rbxassetid://4454597214",
+    },
+    ["Champions Branca"] = {
+        Texture = "http://www.roblox.com/asset/?id=7897839361",
+        Mesh    = "rbxassetid://4761031195",
+    },
+}
+
+local currentBallSkin = nil
+local originalBalls   = {}
+
+local function applySkinToBall(part, skin)
+    pcall(function()
+        if not originalBalls[part] then
+            local data = { Decals = {} }
+
+            if part:IsA("MeshPart") then
+                data.MeshId    = part.MeshId
+                data.TextureID = part.TextureID
+            else
+                local mesh = part:FindFirstChildOfClass("SpecialMesh")
+                if mesh then
+                    data.Mesh = {
+                        MeshId    = mesh.MeshId,
+                        TextureId = mesh.TextureId,
+                        MeshType  = mesh.MeshType,
+                    }
+                end
+            end
+
+            for _, child in ipairs(part:GetChildren()) do
+                if child:IsA("Decal") or child:IsA("Texture") then
+                    data.Decals[child] = {
+                        Texture      = child.Texture,
+                        Transparency = child.Transparency,
+                    }
+                end
+            end
+
+            originalBalls[part] = data
+        end
+
+        if part:IsA("MeshPart") then
+            part.MeshId    = skin.Mesh
+            part.TextureID = skin.Texture
+        else
+            local mesh = part:FindFirstChildOfClass("SpecialMesh")
+            if not mesh then
+                mesh = Instance.new("SpecialMesh")
+                mesh.Name = "NexoraSkinMesh"
+                mesh.Parent = part
+                originalBalls[part].CreatedMesh = true
+            end
+            mesh.MeshType  = Enum.MeshType.FileMesh
+            mesh.MeshId    = skin.Mesh
+            mesh.TextureId = skin.Texture
+        end
+
+        for _, child in ipairs(part:GetChildren()) do
+            if child:IsA("Decal") or child:IsA("Texture") then
+                child.Texture = skin.Texture
+                child.Transparency = 0
+            end
+        end
+    end)
+end
+
+local function restoreBall(part)
+    local data = originalBalls[part]
+    if not data then return end
+
+    pcall(function()
+        if part:IsA("MeshPart") then
+            if data.MeshId then part.MeshId = data.MeshId end
+            if data.TextureID then part.TextureID = data.TextureID end
+        else
+            local mesh = part:FindFirstChildOfClass("SpecialMesh")
+            if mesh then
+                if data.CreatedMesh then
+                    mesh:Destroy()
+                elseif data.Mesh then
+                    mesh.MeshType  = data.Mesh.MeshType
+                    mesh.MeshId    = data.Mesh.MeshId
+                    mesh.TextureId = data.Mesh.TextureId
+                end
+            end
+        end
+
+        for decal, props in pairs(data.Decals) do
+            if decal.Parent then
+                decal.Texture = props.Texture
+                decal.Transparency = props.Transparency
+            end
+        end
+    end)
+
+    originalBalls[part] = nil
+end
+
+local function applyBallSkin(name)
+    if name == "Original" then
+        currentBallSkin = nil
+        for part in pairs(originalBalls) do
+            restoreBall(part)
+        end
+        return
+    end
+
+    local skin = ballSkins[name]
+    if not skin then return end
+
+    currentBallSkin = skin
+    for part in pairs(BallCandidates) do
+        if part.Parent then
+            applySkinToBall(part, skin)
+        end
+    end
+end
+
+-- Mantém a skin quando uma nova bola aparece
+Workspace.DescendantAdded:Connect(function(obj)
+    if currentBallSkin and IsBall(obj) then
+        task.defer(function()
+            if obj.Parent and currentBallSkin then
+                applySkinToBall(obj, currentBallSkin)
+            end
+        end)
+    end
+end)
+
+-- Auto Dive: motor de previsão Sly integrado ao Nexora
+local nexoraSlyDiveConfig
+do
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+local LP = Players.LocalPlayer
+local PlayerGui = LP:WaitForChild("PlayerGui")
+
+
+local CFG = {
+    ENABLED = false,
+    BALL_NAME = "tps",
+    GUI_PATH = { "start", "imagelabel" },
+
+    ARM_SPEED = 30,
+    DISARM_SPEED = 6,
+    VEL_WINDOW = 0.10,
+    VEL_WINDOW_FAST = 0.07,   -- NOVO: janela curta quando a bola voa rapido
+    VEL_WINDOW_SLOW = 0.16,   -- NOVO: janela longa quando a bola vem devagar
+    MAX_LATERAL = 34,
+
+    BODY_HEIGHT      = 4.0,
+    HIGH_CATCH_MIN   = 1.5,
+    CATCH_LATERAL    = 3.0,
+    LOW_DIVE_MAX_H   = 3.0,
+
+    WINDUP = {
+        ["GK C"] = 0.28, ["GK C2"] = 0.34,
+        ["GK Z"] = 0.28, ["GK Z2"] = 0.34,
+        ["High Catch"] = 0.12, ["Low Catch"] = 0.12,
+    },
+    LATENCY = 0.05,
+    MIN_DIVE_TIME = 0.02,
+
+    FAR_LATERAL = 12,
+    FAR_SPEED = 45,
+    MAX_LEAD = 0.18,
+    LOW_BALL_HEIGHT = 3.5,
+    LOW_BALL_FACTOR = 0.55,
+    CURVE_HALFLIFE = 40,
+    CURVE_MIN_FACTOR = 0.2,
+    CORNER_LATERAL_START = 22,
+
+    -- Bola lenta (cavadinha / chip no meio)
+    SLOW_BALL_SPEED  = 28,
+    SLOW_DIVE_DELAY  = 0.12,
+
+    -- Banda "quase catch": atrasa o dive quando a bola passa perto do corpo
+    NEAR_CATCH_DIST  = 4.0,
+    NEAR_CATCH_DELAY = 0.14,
+
+    LEARN = true,
+    BOUNCE_MIN_VY = 4,
+    MAX_HACC = 120,
+    PLANE_OFFSET = 0.5,
+    FEET_FALLBACK = 3,
+    BOUNCE_REST = 0.6,
+    BOUNCE_FRIC = 0.9,
+    AIR_DRAG = 0.0,
+    SIM_STEP = 1 / 240,       -- NOVO: passo menor = mais preciso
+    SIM_MAX_TIME = 3,
+
+    COOLDOWN = 0.45,
+    SIDE_REF = "char",
+    INVERT = false,
+
+    AUTO_CATCH = false,
+    CATCH_REMOTE = "CatchBall",
+    CATCH_RADIUS = 8,
+    REQUIRE_DIVE = true,
+    DIVE_WINDOW = 1.5,
+
+    FREEZE_TIME = 5,
+    AUTO_CATCH_GLOBAL_COOLDOWN = 3.0,
+    HRP_LOCK_TIME = 0.3,
+
+    SHOW_HITBOX = false,
+
+    DISCORD_JOIN_INVITE = "DqsFHSh9Uh",
+}
+
+local BUTTONS = { "GK Z2", "High Catch", "GK C2", "GK Z", "Low Catch", "GK C" }
+local DIVE_BUTTONS = { "GK Z", "GK Z2", "GK C", "GK C2" }
+
+local info = { last = "-" }
+local btnCount, remoteOk, diveRecent = 0, false, false
+
+local conns = {}
+local Window
+
+---------------------------------------------------------------------
+-- BOTÕES
+---------------------------------------------------------------------
+local lastDive = -1e9
+local function markDive() lastDive = os.clock() end
+
+local function norm(s) return (s:lower():gsub("%s+", "")) end
+
+local function findChildCI(parent, name)
+    name = name:lower()
+    for _, c in ipairs(parent:GetChildren()) do
+        if c.Name:lower() == name then return c end
+    end
+end
+
+local function findContainer()
+    local cur = PlayerGui
+    for _, n in ipairs(CFG.GUI_PATH) do
+        cur = cur and findChildCI(cur, n)
+    end
+    return cur
+end
+
+local container
+local btnCache = {}
+
+local function getButton(name)
+    local b = btnCache[name]
+    if b and b.Parent then return b end
+    if not (container and container.Parent) then container = findContainer() end
+    local want = norm(name)
+    local function search(root)
+        for _, d in ipairs(root:GetDescendants()) do
+            if d:IsA("GuiObject") and norm(d.Name) == want then return d end
+        end
+    end
+    b = (container and search(container)) or search(PlayerGui)
+    btnCache[name] = b
+    return b
+end
+
+local EVENTS = { "Activated", "MouseButton1Click", "MouseButton1Down" }
+local hookCount = {}
+
+local function press(name)
+    local b = getButton(name)
+    if not b then
+        info.last = "botão não achado: " .. name
+        return false
+    end
+    local hasGC = type(getconnections) == "function"
+    local fired = false
+
+    pcall(function()
+        for _, evName in ipairs(EVENTS) do
+            local ev = b[evName]
+            local n = 1
+            if hasGC then
+                local own = (hookCount[b] and hookCount[b][evName]) or 0
+                n = #getconnections(ev) - own
+            end
+            if n > 0 then
+                firesignal(ev)
+                fired = true
+                if hasGC then break end
+            end
+        end
+    end)
+
+    if not fired then
+        for _, evName in ipairs(EVENTS) do
+            pcall(function()
+                firesignal(b[evName])
+                fired = true
+            end)
+        end
+    end
+
+    if not fired then
+        pcall(function()
+            local fake = {
+                UserInputType = Enum.UserInputType.MouseButton1,
+                UserInputState = Enum.UserInputState.Begin,
+                Position = Vector3.new(b.AbsolutePosition.X, b.AbsolutePosition.Y, 0),
+            }
+            firesignal(b.InputBegan, fake)
+            fired = true
+        end)
+    end
+
+    if fired and name:sub(1, 2) == "GK" then markDive() end
+    return fired
+end
+
+local function hookButtons()
+    for _, name in ipairs(DIVE_BUTTONS) do
+        local b = getButton(name)
+        if b and not hookCount[b] then
+            hookCount[b] = {}
+            for _, evName in ipairs(EVENTS) do
+                local okc = pcall(function()
+                    table.insert(conns, b[evName]:Connect(markDive))
+                end)
+                if okc then hookCount[b][evName] = 1 end
+            end
+        end
+    end
+end
+
+---------------------------------------------------------------------
+-- BOLAS
+---------------------------------------------------------------------
+local tracked = {}
+local ballName = CFG.BALL_NAME:lower()
+
+local function resolvePart(inst)
+    if inst:IsA("BasePart") then return inst end
+    if inst:IsA("Model") then
+        return inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)
+    end
+end
+
+local function addBall(inst, tries)
+    if inst.Name:lower() ~= ballName then return end
+    local p = resolvePart(inst)
+    if p then
+        if not tracked[p] then
+            tracked[p] = {
+                inst = inst, samples = {}, hist = {},
+                vel = Vector3.zero, pos = nil, phys = true,
+                speed = 0, armed = false, peak = 0,
+                ah = Vector3.zero, curve = 0, drag = 0,
+            }
+        end
+    elseif (tries or 0) < 20 then
+        task.delay(0.1, addBall, inst, (tries or 0) + 1)
+    end
+end
+
+local function scan()
+    for _, d in ipairs(workspace:GetDescendants()) do addBall(d) end
+end
+scan()
+
+table.insert(conns, workspace.DescendantAdded:Connect(function(d)
+    task.defer(addBall, d)
+end))
+
+---------------------------------------------------------------------
+-- FÍSICA
+---------------------------------------------------------------------
+local PHY = { g = workspace.Gravity, e = CFG.BOUNCE_REST, fric = CFG.BOUNCE_FRIC, clear = nil, n = 0 }
+
+local function ema(old, new, a)
+    if old == nil then return new end
+    return old + (new - old) * a
+end
+
+local function learn(s, now, pos, v, pv, ppos, feetY)
+    local g0 = workspace.Gravity
+    local h = pos.Y - feetY
+
+    if h < (PHY.clear or 1.5) + 1.2 and pv.Y < -CFG.BOUNCE_MIN_VY and v.Y > 0.5 then
+        local e = v.Y / -pv.Y
+        if e > 0.05 and e < 1.0 then
+            PHY.e = ema(PHY.e, e, 0.35)
+            local ph = Vector3.new(pv.X, 0, pv.Z).Magnitude
+            if ph > 5 then
+                local fr = Vector3.new(v.X, 0, v.Z).Magnitude / ph
+                if fr > 0.3 and fr < 1.2 then PHY.fric = ema(PHY.fric, fr, 0.35) end
+            end
+            local clear = math.clamp(math.min(ppos.Y, pos.Y) - feetY, 0.3, 3)
+            PHY.clear = ema(PHY.clear, clear, 0.35)
+            PHY.n += 1
+        end
+        s.hist = {}
+        return
+    end
+
+    local hist = s.hist
+    hist[#hist + 1] = { t = now, v = v }
+    while #hist > 1 and now - hist[1].t > 0.4 do table.remove(hist, 1) end
+    if s.speed < 5 then return end
+
+    local ref
+    for i = #hist, 1, -1 do
+        if now - hist[i].t >= 0.08 then ref = hist[i]; break end
+    end
+    if not ref then return end
+
+    local a = (v - ref.v) / (now - ref.t)
+    local ah = Vector3.new(a.X, 0, a.Z)
+
+    if ah.Magnitude > CFG.MAX_HACC * 2 or math.abs(a.Y) > 3 * g0 then
+        s.hist = {}
+        s.ah = Vector3.zero
+        s.curve = 0
+        s.drag = 0
+        return
+    end
+    if ah.Magnitude > CFG.MAX_HACC then ah = ah.Unit * CFG.MAX_HACC end
+    s.ah = s.ah:Lerp(ah, 0.25)
+
+    local hV = Vector3.new(v.X, 0, v.Z)
+    if hV.Magnitude > 1 then
+        local vU = hV.Unit
+        local perp = Vector3.new(-vU.Z, 0, vU.X)
+        local curveA = ah:Dot(perp)
+        local dragA  = ah:Dot(vU)
+        s.curve = ema(s.curve or 0, curveA, 0.3)
+        s.drag  = ema(s.drag  or 0, dragA,  0.3)
+    end
+
+    if h > (PHY.clear or 1) + 1 then
+        local gy = -a.Y
+        if gy > 0.3 * g0 and gy < 2.5 * g0 then PHY.g = ema(PHY.g, gy, 0.1) end
+    end
+end
+
+-- NOVO: janela adaptativa (rapida = curta, lenta = longa)
+local function velWindow(s)
+    local spd = s.peak or s.speed or 0
+    if spd >= 55 then return CFG.VEL_WINDOW_FAST end
+    if spd <= 18 then return CFG.VEL_WINDOW_SLOW end
+    return CFG.VEL_WINDOW
+end
+
+local function track(part, s, now, feetY)
+    local pos = part.Position
+    local samples = s.samples
+    samples[#samples + 1] = { t = now, p = pos }
+
+    local win = velWindow(s)
+    while #samples > 2 and now - samples[1].t > win do
+        table.remove(samples, 1)
+    end
+
+    local vw = Vector3.zero
+    local first = samples[1]
+    local dt = now - first.t
+    if dt >= 0.015 then vw = (pos - first.p) / dt end
+
+    local va = part.AssemblyLinearVelocity
+    local phys = va.Magnitude >= vw.Magnitude * 0.6
+    local v = phys and va or vw
+
+    local prevVel, prevPos = s.vel, s.pos
+    s.vel, s.pos, s.phys = v, pos, phys
+    s.speed = v.Magnitude
+    if s.speed > s.peak then s.peak = s.speed end
+
+    -- limpa curva/drag quando a bola fica muito lenta
+    if s.speed < 8 then
+        s.curve = 0
+        s.drag  = 0
+        s.ah    = Vector3.zero
+    end
+
+    if s.speed >= CFG.ARM_SPEED then
+        s.armed = true
+    elseif s.speed <= CFG.DISARM_SPEED then
+        s.armed = false
+        s.peak = 0
+    end
+
+    if CFG.LEARN and phys and feetY and prevVel and prevPos then
+        learn(s, now, pos, v, prevVel, prevPos, feetY)
+    end
+end
+
+---------------------------------------------------------------------
+-- PREDIÇÃO (ETS)
+---------------------------------------------------------------------
+-- Retorna: tHit, posHit, rel, dir, altura, quiques
+-- Usa interpolacao no cruzamento do plano p/ ETA preciso
+local function predict(part, s, vel, root, feetY)
+    local flat = Vector3.new(vel.X, 0, vel.Z)
+    if flat.Magnitude < 5 then return nil end
+    local d = flat.Unit
+    local rootPos = root.Position
+
+    local startPos = part.Position
+    if (rootPos - startPos):Dot(d) <= CFG.PLANE_OFFSET then return nil end
+
+    local learn_ = CFG.LEARN
+    local g = (learn_ and PHY.g) or workspace.Gravity
+    local e = learn_ and PHY.e or CFG.BOUNCE_REST
+    local fr = learn_ and PHY.fric or CFG.BOUNCE_FRIC
+    local clear = (learn_ and PHY.clear) or (part.Size.Y / 2)
+    local curve0 = (learn_ and (s.curve or 0)) or 0
+    local drag0  = (learn_ and (s.drag  or 0)) or 0
+    local groundY = feetY + clear
+
+    local pos = startPos
+    local hv = flat
+    local vy = vel.Y
+    local t = 0
+    local dt = CFG.SIM_STEP
+    local bounces = 0
+
+    local prevPos = pos
+    local prevT = 0
+
+    -- helper: checa se o plano foi cruzado entre prevPos -> pos
+    local function crossCheck(pPrev, pNow, tPrev, tNow)
+        local dPrev = (rootPos - pPrev):Dot(d) - CFG.PLANE_OFFSET
+        local dNow  = (rootPos - pNow ):Dot(d) - CFG.PLANE_OFFSET
+        if dPrev > 0 and dNow <= 0 then
+            local span = dPrev - dNow
+            local frac = span > 1e-9 and (dPrev / span) or 0
+            local tHit = tPrev + (tNow - tPrev) * frac
+            local pHit = pPrev:Lerp(pNow, frac)
+            return tHit, pHit
+        end
+        return nil
+    end
+
+    while t < CFG.SIM_MAX_TIME do
+        prevPos, prevT = pos, t
+
+        -- fisica
+        vy = vy - g * dt
+        local hMag = hv.Magnitude
+        if hMag > 0.1 then
+            local vU = hv.Unit
+            local perp = Vector3.new(-vU.Z, 0, vU.X)
+            -- NOVO: curva/drag decaem com o tempo (aproximacao)
+            local decay = math.exp(-t / CFG.CURVE_HALFLIFE)
+            hv = hv + (perp * curve0 * decay + vU * drag0 * decay) * dt
+        end
+        hv = hv * (1 - CFG.AIR_DRAG * dt)
+        if hv.Magnitude < 0.5 then hv = Vector3.zero end
+
+        pos = pos + Vector3.new(hv.X, vy, hv.Z) * dt
+        t += dt
+
+        -- cruzamento do plano (interpolado)
+        local tHit, pHit = crossCheck(prevPos, pos, prevT, t)
+        if tHit then
+            local rel = pHit - rootPos
+            return tHit, pHit, rel, d, pHit.Y - feetY, bounces
+        end
+
+        -- chao
+        if pos.Y <= groundY and vy < 0 then
+            local over = groundY - pos.Y
+            pos = Vector3.new(pos.X, groundY, pos.Z)
+            if -vy >= CFG.BOUNCE_MIN_VY then
+                vy = -vy * e
+                hv = hv * fr
+                bounces += 1
+            else
+                vy = 0
+            end
+            _ = over
+        end
+    end
+    return nil
+end
+
+local function lateralOf(rel, d, root)
+    local right
+    if CFG.SIDE_REF == "ball" then
+        right = (-d):Cross(Vector3.yAxis)
+    else
+        right = root.CFrame.RightVector
+    end
+    local lat = rel:Dot(right)
+    if CFG.INVERT then lat = -lat end
+    return lat
+end
+
+---------------------------------------------------------------------
+-- DECISÃO  (inalterada)
+---------------------------------------------------------------------
+local function decide(lateral, height, curveMag)
+    local absLat = math.abs(lateral)
+    local right = lateral >= 0
+
+    local catchLat = CFG.CATCH_LATERAL
+    if curveMag and curveMag > 0 then
+        catchLat = catchLat + math.min(1.5, math.abs(curveMag) / 60)
+    end
+
+    if absLat <= catchLat and height <= CFG.BODY_HEIGHT + 0.3 then
+        if height < CFG.HIGH_CATCH_MIN then
+            return "Low Catch"
+        end
+        return "High Catch"
+    end
+
+    if height <= CFG.LOW_DIVE_MAX_H then
+        return right and "GK C" or "GK Z"
+    end
+    return right and "GK C2" or "GK Z2"
+end
+
+local function curveFactor(s)
+    local c = math.abs((s and s.curve) or 0)
+    if c <= 0 then return 1 end
+    local hl = math.max(CFG.CURVE_HALFLIFE, 1)
+    local k = 1 / (1 + c / hl)
+    return math.clamp(k, CFG.CURVE_MIN_FACTOR, 1)
+end
+
+local function diveLead(absLat, height, s, eta)
+    if absLat <= CFG.FAR_LATERAL then
+        return 0, 1
+    end
+
+    local baseLead = (absLat - CFG.FAR_LATERAL) / math.max(CFG.FAR_SPEED, 1)
+
+    local farBoost = 1
+    if absLat > CFG.CORNER_LATERAL_START then
+        farBoost = 1 + math.min(0.6, (absLat - CFG.CORNER_LATERAL_START) / 20)
+    end
+
+    local k = curveFactor(s)
+    local lead = baseLead * farBoost * k
+
+    if height and height <= CFG.LOW_BALL_HEIGHT then
+        lead = lead * CFG.LOW_BALL_FACTOR
+    end
+
+    local maxLeadDyn = CFG.MAX_LEAD
+        + math.max(0, absLat - CFG.CORNER_LATERAL_START) * 0.006
+    if lead > maxLeadDyn then lead = maxLeadDyn end
+
+    if eta and eta > 0 then
+        local maxByEta = eta - CFG.MIN_DIVE_TIME
+        if maxByEta < 0 then maxByEta = 0 end
+        if lead > maxByEta then lead = maxByEta end
+    end
+
+    return lead, k
+end
+
+---------------------------------------------------------------------
+-- NEAR CATCH (bola perto do corpo mas ainda exigindo dive)
+---------------------------------------------------------------------
+local function nearCatchFactor(lateral, height, curveMag)
+    local absLat = math.abs(lateral)
+
+    local catchLat = CFG.CATCH_LATERAL
+    if curveMag and curveMag > 0 then
+        catchLat = catchLat + math.min(1.5, math.abs(curveMag) / 60)
+    end
+    local catchH = CFG.BODY_HEIGHT + 0.3
+
+    local dLat = math.max(0, absLat - catchLat)
+    local dH   = math.max(0, height - catchH)
+
+    if dLat == 0 and dH == 0 then return 0 end
+
+    local d = math.sqrt(dLat * dLat + dH * dH)
+    local band = CFG.NEAR_CATCH_DIST
+    if d >= band then return 0 end
+    return 1 - (d / band)
+end
+
+
+    local busyUntil, lastScan, lastSlow = 0, 0, 0
+
+    local function stepSlyDive()
+        local now = os.clock()
+
+        if next(tracked) == nil and now - lastScan > 2 then
+            lastScan = now
+            scan()
+        end
+
+        if now - lastSlow > 1 then
+            lastSlow = now
+            hookButtons()
+        end
+
+        local char = LP.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local feetY
+        if root then
+            feetY = root.Position.Y - (hum and (hum.HipHeight + root.Size.Y / 2) or CFG.FEET_FALLBACK)
+        end
+
+        local best
+        for part, s in pairs(tracked) do
+            if part.Parent then
+                track(part, s, now, feetY)
+                -- Só permite o Auto Dive quando a tool de goleiro estiver equipada.
+                if CFG.ENABLED and hasGoalkeeperTool() and root and feetY and now >= busyUntil and s.armed then
+                    local t, _, rel, d, h = predict(part, s, s.vel, root, feetY)
+                    if t then
+                        local flatRel = Vector3.new(rel.X, 0, rel.Z)
+                        local lat = lateralOf(rel, d, root)
+                        local incoming = (root.Position - part.Position):Dot(d) > 0
+                        if incoming and flatRel.Magnitude <= CFG.MAX_LATERAL
+                            and (not best or t < best.t) then
+                            best = { t = t, lat = lat, h = h, part = part, d = d, s = s }
+                        end
+                    end
+                end
+            else
+                tracked[part] = nil
+            end
+        end
+
+        if best then
+            local curveMag = (best.s and best.s.curve) or 0
+            local absLat = math.abs(best.lat)
+            local bSpeed = (best.s and best.s.speed) or 0
+            local action = decide(best.lat, best.h, curveMag)
+            local isDive = action:sub(1, 2) == "GK"
+            local windup = (CFG.WINDUP[action] or 0.25) + CFG.LATENCY
+            local lead = 0
+            if isDive then lead = diveLead(absLat, best.h, best.s, best.t) end
+            local slowDelay = (isDive and bSpeed < CFG.SLOW_BALL_SPEED) and CFG.SLOW_DIVE_DELAY or 0
+            local nearDelay = 0
+            if isDive then nearDelay = CFG.NEAR_CATCH_DELAY * nearCatchFactor(best.lat, best.h, curveMag) end
+            local timeLeft = best.t - (windup + lead) + slowDelay + nearDelay
+
+            if timeLeft <= 0 and hasGoalkeeperTool() then
+                press(action)
+                busyUntil = now + CFG.COOLDOWN
+                local trackedState = tracked[best.part]
+                if trackedState then trackedState.armed = false end
+            end
+        end
+    end
+
+    RunService.Heartbeat:Connect(function()
+        pcall(stepSlyDive)
+    end)
+
+    -- Controles vinculados aos controles que já existiam no Nexora.
+    nexoraSlyDiveConfig = CFG
+end
+
+local Window = NeonUI:CreateWindow({
+    Name = "NEXORA",
     Subtitle = "by riive3lino",
-    LogoID = "94280382992391",
-    LoadingEnabled = true,
-    LoadingTitle = "nexora Hub",
+    LoadingTitle = "NEXORA HUB",
     LoadingSubtitle = "by riive3lino",
-    ConfigSettings = {
-        RootFolder = "nexoraHubData",
-        ConfigFolder = "nexoraHub",
-    },
-    KeySystem = false,
+    ConfigFolder = "NexoraHub",
 })
 
-Window:CreateHomeTab({
-    SupportedExecutors = {
-        "Synapse X",
-        "Krnl",
-        "Fluxus",
-        "Script-Ware",
-        "Delta",
-        "Wave",
-        "Comet",
-        "Madium",
-    },
-    DiscordInvite = "",
-    Icon = 1,
-})
-
-local ReachTab = Window:CreateTab({
-    Name = "Reach",
-    Icon = "open_with",
-    ImageSource = "Material",
-    ShowTitle = true,
-})
+-- Reach
+local ReachTab = Window:CreateTab("Reach")
 
 ReachTab:CreateSection("Configurações do Reach")
 
 ReachTab:CreateToggle({
     Name = "Ativar Reach",
-    CurrentValue = false,
+    Description = "Aumenta o alcance para tocar na bola",
+    Default = false,
+    Flag = "ReachToggle",
     Callback = function(value)
         reachConfig.isActive = value
-        Luna:Notification({
+        Window:Notify({
             Title = "Nexora Hub",
             Content = value and "Reach foi ativado!" or "Reach foi desativado!",
             Duration = 2,
         })
     end,
-}, "ReachToggle")
+})
 
 ReachTab:CreateToggle({
     Name = "Reach Sphere (mostrar alcance)",
-    CurrentValue = false,
+    Description = "Mostra o alcance em volta de você",
+    Default = false,
+    Flag = "ReachSphereToggle",
     Callback = function(value)
         reachConfig.sphereEnabled = value
         updateSphere()
     end,
-}, "ReachSphereToggle")
+})
 
 ReachTab:CreateSlider({
     Name = "Distância (Studs)",
     Range = {1, 10},
     Increment = 0.5,
-    CurrentValue = 3.5,
+    Default = 3.5,
+    Flag = "ReachSlider",
     Callback = function(value)
         reachConfig.reachDistance = value
         if reachConfig.sphereEnabled then
             updateSphere()
         end
     end,
-}, "ReachSlider")
-
-local PlayerTab = Window:CreateTab({
-    Name = "Player",
-    Icon = "person",
-    ImageSource = "Material",
-    ShowTitle = true,
 })
+
+-- Player
+local PlayerTab = Window:CreateTab("Player")
 
 PlayerTab:CreateSection("Auto Follow Bola")
 
 PlayerTab:CreateToggle({
     Name = "Ativar Auto Follow",
-    CurrentValue = false,
+    Description = "Segue a bola automaticamente",
+    Default = false,
+    Flag = "AutoFollowToggle",
     Callback = function(value)
         followEnabled = value
         followGui.Enabled = value
         if not value then
             stopFollow()
         end
-        Luna:Notification({
+        Window:Notify({
             Title = "Auto Follow",
             Content = value and "Auto Follow Habilitado!" or "Auto Follow Desabilitado!",
             Duration = 2,
         })
     end,
-}, "AutoBallToggle")
+})
 
 PlayerTab:CreateSection("Shield da Bola (Anti-Inimigo)")
 
 PlayerTab:CreateToggle({
     Name = "Ativar Ball Shield",
-    CurrentValue = false,
+    Description = "Afasta os inimigos que chegam perto da bola",
+    Default = false,
+    Flag = "ShieldToggle",
     Callback = function(value)
         ballShield.Enabled = value
-        Luna:Notification({
+        Window:Notify({
             Title = "Ball Shield",
             Content = value and "Ball Shield Ativado!" or "Ball Shield Desativado!",
             Duration = 2,
         })
     end,
-}, "ShieldToggle")
+})
 
 PlayerTab:CreateSlider({
     Name = "Distância do Shield (Studs)",
     Range = {5, 30},
     Increment = 1,
-    CurrentValue = 10,
+    Default = 10,
+    Flag = "ShieldSlider",
     Callback = function(value)
         ballShield.Studs = value
     end,
-}, "ShieldSlider")
+})
 
 PlayerTab:CreateSection("Interface Flutuante Mobile")
 
 PlayerTab:CreateToggle({
     Name = "Mostrar Botão Flutuante",
-    CurrentValue = true,
+    Description = "Botão para ligar o Follow na tela",
+    Default = true,
+    Flag = "FollowButtonToggle",
     Callback = function(value)
         followButton.Visible = value
     end,
-}, "AutoBallMobileToggle")
-
-local GoalkeeperTab = Window:CreateTab({
-    Name = "Goalkeeper",
-    Icon = "sports_handball",
-    ImageSource = "Material",
-    ShowTitle = true,
 })
+
+PlayerTab:CreateSection("Pulo")
+
+PlayerTab:CreateSlider({
+    Name = "Força do Pulo",
+    Range = {50, 200},
+    Increment = 5,
+    Default = 50,
+    Flag = "JumpSlider",
+    Callback = function(value)
+        customJump = value
+        applyJump()
+    end,
+})
+
+PlayerTab:CreateSection("Velocidade")
+
+PlayerTab:CreateSlider({
+    Name = "Velocidade",
+    Range = {16, 150},
+    Increment = 1,
+    Default = 16,
+    Flag = "SpeedSlider",
+    Callback = function(value)
+        walkSpeed = value
+    end,
+})
+
+-- Goalkeeper
+local GoalkeeperTab = Window:CreateTab("Goalkeeper")
 
 GoalkeeperTab:CreateSection("Auto Catch (Goleiro)")
 
 GoalkeeperTab:CreateToggle({
     Name = "Ativar Auto Catch",
-    CurrentValue = false,
+    Description = "Defende a bola sozinho (goleiro)",
+    Default = false,
+    Flag = "AutoCatchToggle",
     Callback = function(value)
         autoCatchEnabled = value
-        Luna:Notification({
+        Window:Notify({
             Title = "Goalkeeper",
             Content = value and "Auto Catch Ativado!" or "Auto Catch Desativado!",
             Duration = 2,
         })
     end,
-}, "AutoCatchToggle")
+})
 
 GoalkeeperTab:CreateSlider({
     Name = "Alcance da Defesa (Studs)",
     Range = {1, 50},
     Increment = 1,
-    CurrentValue = 10,
+    Default = 10,
+    Flag = "AutoCatchSlider",
     Callback = function(value)
         autoCatchRange = value
     end,
-}, "AutoCatchSlider")
-
-local MiscTab = Window:CreateTab({
-    Name = "Misc",
-    Icon = "settings",
-    ImageSource = "Material",
-    ShowTitle = true,
 })
+
+GoalkeeperTab:CreateSection("Previsão da Bola")
+
+GoalkeeperTab:CreateToggle({
+    Name = "Mostrar onde a bola vai cair",
+    Description = "Marca no chão o ponto de queda da bola",
+    Default = false,
+    Flag = "PredictToggle",
+    Callback = function(value)
+        predictEnabled = value
+        if not value then
+            hideMarker()
+        end
+    end,
+})
+
+-- Visual
+local VisualTab = Window:CreateTab("Visual")
+
+VisualTab:CreateSection("Skybox")
+
+VisualTab:CreateDropdown({
+    Name = "Céu",
+    Description = "Muda o céu e a iluminação do mapa",
+    Options = {"Padrão", "Sol", "Lua", "Chuva", "Dark Sky", "Art Mountain", "Vaporwave", "Nebula", "Twilight", "Lake Sky", "Alien Red", "Black Mesa", "Clouds"},
+    Default = "Padrão",
+    Flag = "SkyboxDropdown",
+    Callback = function(value)
+        applySky(value)
+    end,
+})
+
+VisualTab:CreateSection("Skybox personalizada")
+
+VisualTab:CreateParagraph({
+    Title = "Como usar",
+    Content = "Cole 1 ID (vale para todas as faces) ou 6 IDs de imagem, na ordem: trás, baixo, frente, esquerda, direita, cima. Toque em Aplicar para testar e em Salvar para guardar na lista.",
+})
+
+skyNameInput = VisualTab:CreateInput({
+    Name = "Nome da skybox",
+    Description = "Só letras e números",
+    Default = "minhasky",
+    Placeholder = "minhasky",
+})
+
+skyIdsInput = VisualTab:CreateInput({
+    Name = "IDs das imagens",
+    Description = "1 ID ou 6 IDs",
+    Placeholder = "123456, 123457...",
+})
+
+VisualTab:CreateButton({
+    Name = "Aplicar skybox",
+    Description = "Mostra a skybox agora",
+    Callback = function()
+        local faces = parseSkyIds(skyIdsInput:Get())
+        if not faces then
+            Window:Notify({ Title = "Skybox", Content = "Informe 1 ID ou 6 IDs (números).", Duration = 3 })
+            return
+        end
+        applyCustomSky(faces)
+        Window:Notify({ Title = "Skybox", Content = "Skybox aplicada!", Duration = 2 })
+    end,
+})
+
+VisualTab:CreateButton({
+    Name = "Salvar skybox",
+    Description = "Guarda na lista de baixo",
+    Callback = function()
+        local faces = parseSkyIds(skyIdsInput:Get())
+        if not faces then
+            Window:Notify({ Title = "Skybox", Content = "Informe 1 ID ou 6 IDs (números).", Duration = 3 })
+            return
+        end
+
+        local name = tostring(skyNameInput:Get()):gsub("[^%w_%-]", "")
+        if name == "" then
+            name = "minhasky"
+        end
+
+        customSkies[name] = faces
+        local saved = saveCustomSkies()
+        customSkyDropdown:SetOptions(sortedSkyNames())
+        customSkyDropdown:Set(name)
+
+        Window:Notify({
+            Title = "Skybox",
+            Content = saved and ("Salva: " .. name) or "Aplicada, mas seu executor não salva arquivos.",
+            Duration = 3,
+        })
+    end,
+})
+
+customSkyDropdown = VisualTab:CreateDropdown({
+    Name = "Minhas skyboxes",
+    Description = "Escolha uma que você salvou",
+    Options = sortedSkyNames(),
+    Flag = "CustomSkyDropdown",
+    Callback = function(value)
+        local faces = customSkies[value]
+        if faces then
+            applyCustomSky(faces)
+        end
+    end,
+})
+
+VisualTab:CreateButton({
+    Name = "Apagar skybox selecionada",
+    Description = "Remove da lista",
+    Callback = function()
+        local name = customSkyDropdown:Get()
+        if not name or not customSkies[name] then
+            Window:Notify({ Title = "Skybox", Content = "Nenhuma skybox selecionada.", Duration = 2 })
+            return
+        end
+        customSkies[name] = nil
+        saveCustomSkies()
+        customSkyDropdown:SetOptions(sortedSkyNames())
+        Window:Notify({ Title = "Skybox", Content = "Apagada: " .. name, Duration = 2 })
+    end,
+})
+
+VisualTab:CreateSection("Bola")
+
+VisualTab:CreateDropdown({
+    Name = "Skin da bola",
+    Description = "Troca a aparência da bola (só para você)",
+    Options = {"Original", "Champions Laranja", "Champions Azul", "Champions Branca"},
+    Default = "Original",
+    Flag = "BallSkinDropdown",
+    Callback = function(value)
+        applyBallSkin(value)
+    end,
+})
+
+GoalkeeperTab:CreateSection("Auto Dive")
+
+GoalkeeperTab:CreateToggle({
+    Name = "Ativar Auto Dive",
+    Description = "Aperta sozinho a tecla certa de defesa/agarrar (Q/E/R/F/Z/C)",
+    Default = false,
+    Flag = "DiveToggle",
+    Callback = function(value)
+        if nexoraSlyDiveConfig then nexoraSlyDiveConfig.ENABLED = value end
+    end,
+})
+
+GoalkeeperTab:CreateSlider({
+    Name = "Alcance do Auto Dive (Studs)",
+    Range = {5, 30},
+    Increment = 1,
+    Default = 15,
+    Flag = "DiveRangeSlider",
+    Callback = function(value)
+        if nexoraSlyDiveConfig then nexoraSlyDiveConfig.MAX_LATERAL = value end
+    end,
+})
+
+-- Misc
+local MiscTab = Window:CreateTab("Misc")
 
 MiscTab:CreateSection("Ajustes Visuais")
 
 MiscTab:CreateToggle({
     Name = "Stretched Resolution",
-    CurrentValue = true,
+    Description = "Deixa a tela esticada",
+    Default = true,
+    Flag = "StretchedToggle",
     Callback = function(value)
         if value then
             enableStretch()
@@ -679,34 +3741,69 @@ MiscTab:CreateToggle({
             disableStretch()
         end
     end,
-}, "StretchedToggle")
+})
 
 MiscTab:CreateSlider({
     Name = "Ajuste de FOV / Resolução",
     Range = {10, 100},
     Increment = 1,
-    CurrentValue = 100,
+    Default = 100,
+    Flag = "ResolutionSlider",
     Callback = function(value)
         setFieldOfView(value)
     end,
-}, "ResolutionSlider")
-
-local ConfigTab = Window:CreateTab({
-    Name = "Config",
-    Icon = "save",
-    ImageSource = "Material",
-    ShowTitle = true,
 })
 
-ConfigTab:BuildConfigSection()
+-- Créditos e Configurações (sempre por último)
+Window:CreateCreditsTab({
+    Credits = {
+        { Name = "riive3lino", Role = "Criador e desenvolvedor do Nexora" },
+        { Name = "Skyrovah", Role = "Contribuiu e ajudou no desenvolvimento" },
+    },
+    About = {
+        Title = "Nexora Hub",
+        Content = "Obrigado por usar o Nexora Hub! Sugestões e problemas podem ser enviados para o criador.",
+    },
+})
+
+Window:CreateSettingsTab()
+end
+
+local function showError(msg)
+	warn("[Nexora] " .. tostring(msg))
+	pcall(function()
+		local g = Instance.new("ScreenGui")
+		g.Name = "NexoraError"
+		g.ResetOnSpawn = false
+		g.DisplayOrder = 1000000
+		g.Parent = (gethui and gethui()) or CoreGui
+
+		local l = Instance.new("TextLabel")
+		l.Size = UDim2.new(0.9, 0, 0, 170)
+		l.Position = UDim2.new(0.05, 0, 0.05, 0)
+		l.BackgroundColor3 = Color3.fromRGB(40, 0, 0)
+		l.TextColor3 = Color3.fromRGB(255, 210, 210)
+		l.TextWrapped = true
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.TextYAlignment = Enum.TextYAlignment.Top
+		l.TextSize = 12
+		l.Font = Enum.Font.Code
+		l.Text = "[Nexora] Erro (copiado para a área de transferência):\n" .. tostring(msg)
+		l.Parent = g
+
+		if setclipboard then setclipboard(tostring(msg)) end
+		task.delay(40, function() g:Destroy() end)
+	end)
 end
 
 local function runScript()
 	print("[Nexora] Key válida, executando o script...")
 	task.spawn(function()
-		local okRun, runErr = pcall(runHub)
+		local okRun, runErr = xpcall(runHub, function(e)
+			return tostring(e) .. "\n" .. tostring(debug.traceback())
+		end)
 		if not okRun then
-			warn("[Nexora] Erro dentro do script: " .. tostring(runErr))
+			showError(runErr)
 		end
 	end)
 	return true
